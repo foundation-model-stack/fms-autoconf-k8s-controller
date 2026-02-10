@@ -49,9 +49,10 @@ const (
 const GPUResourceRequirement corev1.ResourceName = "nvidia.com/gpu"
 
 type RecommenderRequest struct {
-	Pending   bool
-	Patched   bool
-	RequestID string
+	Pending               bool
+	AppliedRecommendation bool
+	RequestID             string
+	RecommendationJSON    string
 }
 
 type PatchingInstructions struct {
@@ -65,6 +66,7 @@ type PatchingInstructions struct {
 	PatchCPURequest             bool
 	DefaultGPUModel             string
 	AutoconfModelVersion        string
+	RecommendationAnnotationKey string
 }
 
 func (p *PatchingInstructions) Copy() PatchingInstructions {
@@ -79,6 +81,7 @@ func (p *PatchingInstructions) Copy() PatchingInstructions {
 		PatchCPURequest:             p.PatchCPURequest,
 		DefaultGPUModel:             p.DefaultGPUModel,
 		AutoconfModelVersion:        p.AutoconfModelVersion,
+		RecommendationAnnotationKey: p.RecommendationAnnotationKey,
 	}
 }
 
@@ -306,6 +309,20 @@ func (r *PatchingInstructions) UpdatePyTorchJob(job *kubeflowv1.PyTorchJob, requ
 		return RecommenderRequest{RequestID: requestID, Pending: true}, nil, nil
 	}
 
+	// Check if recommendation was possible
+	if !recs.CanRecommend {
+		// Cannot recommend - create error JSON, do NOT patch the job
+		errorJSON, _ := json.Marshal(map[string]interface{}{
+			"error": "No recommendation",
+		})
+		return RecommenderRequest{
+			RequestID:             requestID,
+			Pending:               false,
+			AppliedRecommendation: false,
+			RecommendationJSON:    string(errorJSON),
+		}, nil, nil
+	}
+
 	log.Info("computed resource requirements", "recs", recs)
 
 	// VV: the "Master" PyTorchReplica always has 1 Replica, the remaining ones go to the recsWorkers
@@ -348,8 +365,21 @@ func (r *PatchingInstructions) UpdatePyTorchJob(job *kubeflowv1.PyTorchJob, requ
 		job.Spec.RunPolicy.Suspend = ptr.To(false)
 	}
 
+	// Create success JSON
+	successJSON, _ := json.Marshal(map[string]interface{}{
+		"recommendation": map[string]int{
+			"workers": recs.Workers,
+			"gpus":    recs.GPUs,
+		},
+	})
+
 	data, err := json.Marshal(job)
-	return RecommenderRequest{RequestID: requestID, Pending: false, Patched: true}, data, err
+	return RecommenderRequest{
+		RequestID:             requestID,
+		Pending:               false,
+		AppliedRecommendation: true,
+		RecommendationJSON:    string(successJSON),
+	}, data, err
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -397,22 +427,43 @@ func (r *PyTorchJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
-	if rr.Patched {
+	if rr.RecommendationJSON != "" {
+		// VV: this means that we got an answer from the recommender
+		// it can either be a recommendation or an error.
+		// In both cases, we update the Job and mark it as done.
+		// We also include the recommender's output as an annotation.
+
 		job.Labels[r.DoneLabelKey] = r.DoneLabelValue
 		delete(job.Labels, r.WaitingForAdoRequestIDLabel)
+
+		if job.Annotations == nil {
+			job.Annotations = make(map[string]string)
+		}
+		job.Annotations[r.RecommendationAnnotationKey] = rr.RecommendationJSON
 
 		if err := r.Patch(ctx, job, client.MergeFrom(original)); err != nil {
 			return handleUpdateWrapperError(err, log)
 		}
 
-		log.Info("PyTorchJob is updated")
+		if rr.AppliedRecommendation {
+			log.Info("PyTorchJob is updated with recommendations")
 
-		r.Recorder.Event(
-			job,
-			corev1.EventTypeNormal,
-			"PatchedWithRecommendations",
-			"PyTorchJob updated with recommended resource requirements",
-		)
+			r.Recorder.Event(
+				job,
+				corev1.EventTypeNormal,
+				"PatchedWithRecommendations",
+				"PyTorchJob updated with recommended resource requirements",
+			)
+		} else {
+			log.Info("PyTorchJob marked as processed - no recommendation available")
+
+			r.Recorder.Event(
+				job,
+				corev1.EventTypeWarning,
+				"NoRecommendationAvailable",
+				"Recommendation engine could not generate recommendations; job proceeding without modifications",
+			)
+		}
 
 		return ctrl.Result{}, nil
 	} else if rr.Pending {

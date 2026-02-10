@@ -111,6 +111,36 @@ Below are the controller’s command-line options:
 - `--done-label-key string` — Label key inserted when patching is complete (default `autoconf-plugin-done`).
 - `--done-label-value string` — Label value inserted when patching is complete (default `yes`).
 - `--waiting-for-ado-request-id-label string` — Label used to mark jobs waiting for an ADO request ID (default `waiting-for-ado-request-id`).
+- `--recommendation-annotation-key string` — Annotation key to store recommendation results in JSON format (default `ado-autoconf.ibm.com/recommendation`).
+
+### Recommendation Annotations
+
+The controller adds an annotation to each processed object containing the recommendation result in JSON format:
+
+**Successful Recommendation:**
+```json
+{
+  "recommendation": {
+    "workers": 2,
+    "gpus": 4
+  }
+}
+```
+
+**No Recommendation Available:**
+```json
+{
+  "error": "No recommendation"
+}
+```
+
+When the recommendation engine cannot generate recommendations (e.g., `can_recommend != 1` from the ado experiment), the controller:
+1. Adds the error annotation to the object
+2. Sets the done label to mark it as processed
+3. Allows the object to proceed through standard Kubernetes workflows without modifications
+4. Emits a warning event indicating no recommendation was available
+
+This ensures objects are not stuck in a retry loop when recommendations cannot be generated.
 
 ### Logging
 - `--zap-devel` — Development mode defaults (console encoder, debug log level, warn stack traces). Production mode defaults (JSON encoder, info log level, error stack traces). Default `true`.

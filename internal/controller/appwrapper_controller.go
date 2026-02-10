@@ -93,7 +93,7 @@ func (r *AppWrapperReconciler) UpdateAppWrapper(aw *awv1beta2.AppWrapper, log lo
 		return rr, err
 	}
 
-	if rr.Patched {
+	if rr.AppliedRecommendation {
 		aw.Spec.Components[ptjIdx].Template = runtime.RawExtension{
 			Raw: raw,
 		}
@@ -139,10 +139,16 @@ func (r *AppWrapperReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
-	if rr.Patched {
-		// VV: apprapper.spec.components[idx].template.raw are immutable so we have to create a new object.
-		// We also need to patch the old one to remove the label that would trigger our plugin to handle it
+	if rr.RecommendationJSON != "" {
+		// VV: We got an answer from the recommender (either recommendation or error)
+		// First, mark the original job as "done" so that we don't attempt to mutate it again
+
 		job.Labels[r.DoneLabelKey] = r.DoneLabelValue
+
+		if job.Annotations == nil {
+			job.Annotations = make(map[string]string)
+		}
+		job.Annotations[r.RecommendationAnnotationKey] = rr.RecommendationJSON
 
 		delete(original.Labels, r.WatchLabelKey)
 
@@ -150,26 +156,48 @@ func (r *AppWrapperReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			return handleUpdateWrapperError(err, log)
 		}
 
-		derived := job.DeepCopy()
-		derived.Name = ""
-		derived.GenerateName = strings.TrimSuffix(job.Name, "-") + "-"
-		derived.ResourceVersion = ""
+		if rr.AppliedRecommendation {
+			// VV: appwrapper.spec.components[idx].template.raw are immutable so we have to create a new object.
+			// We also need to patch the old one to remove the label that would trigger our plugin to handle it
 
-		derived.OwnerReferences = []v1.OwnerReference{
-			{
-				APIVersion: job.APIVersion,
-				Kind:       job.Kind,
-				Name:       job.Name,
-				UID:        job.UID,
-			},
+			derived := job.DeepCopy()
+			derived.Name = ""
+			derived.GenerateName = strings.TrimSuffix(job.Name, "-") + "-"
+			derived.ResourceVersion = ""
+
+			derived.OwnerReferences = []v1.OwnerReference{
+				{
+					APIVersion: job.APIVersion,
+					Kind:       job.Kind,
+					Name:       job.Name,
+					UID:        job.UID,
+				},
+			}
+
+			if err := r.Create(ctx, derived); err != nil {
+				log.Error(err, "unable to create a new AppWrapper")
+				return ctrl.Result{}, err
+			}
+
+			log.Info("Created new AppWrapper with recommendations", "name", derived.Name)
+
+			r.Recorder.Event(
+				job,
+				corev1.EventTypeNormal,
+				"PatchedWithRecommendations",
+				"Created new AppWrapper with recommended resource requirements",
+			)
+		} else {
+			// No recommendation - mark original as done without creating new one
+			log.Info("AppWrapper marked as processed - no recommendation available")
+
+			r.Recorder.Event(
+				job,
+				corev1.EventTypeWarning,
+				"NoRecommendationAvailable",
+				"Recommendation engine could not generate recommendations; AppWrapper proceeding without modifications",
+			)
 		}
-
-		if err := r.Create(ctx, derived); err != nil {
-			log.Error(err, "unable to create a new AppWrapper")
-			return ctrl.Result{}, err
-		}
-
-		log.Info("Created new AppWrapper", "name", derived.Name)
 
 		return ctrl.Result{}, nil
 	} else if rr.Pending {

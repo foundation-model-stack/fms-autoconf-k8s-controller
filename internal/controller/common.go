@@ -36,6 +36,8 @@ type ResourceRequirements struct {
 	// These are fields we auto-generate based on the above
 	// These are the replicas of a specific PyTorchJobReplicaSpecs
 	Replicas int
+	// CanRecommend indicates whether the recommendation engine was able to generate recommendations
+	CanRecommend bool
 }
 
 type MinGPURecommenderInput struct {
@@ -324,14 +326,21 @@ func CheckRequestToCalcMinimumResourceRequirements(in MinGPURecommenderInput, ur
 	op := mr.Entities[0].GetObservedProperties()
 
 	if op["can_recommend"] != 1 {
-		return nil, fmt.Errorf("min_gpu_recommender cannot recommend resources")
+		// Return a ResourceRequirements indicating no recommendation is available
+		log.Info("Recommendation engine cannot recommend resources", "observedProperties", op)
+		return &ResourceRequirements{
+			Workers:      0,
+			GPUs:         0,
+			CanRecommend: false,
+		}, nil
 	}
 
 	log.Info("Obtained measured properties", "observedProperties", op, "measurementRequests", mr)
 
 	recs := ResourceRequirements{
-		Workers: op["workers"],
-		GPUs:    op["gpus"],
+		Workers:      op["workers"],
+		GPUs:         op["gpus"],
+		CanRecommend: true,
 	}
 
 	return &recs, nil

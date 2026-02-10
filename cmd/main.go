@@ -77,6 +77,7 @@ func main() {
 	var unsuspendPatchedJobs bool
 	var defaultGPUModel string
 	var defaultAutoconfModelVersion string
+	var recommendationAnnotationKey string
 
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
@@ -118,6 +119,7 @@ func main() {
 	flag.StringVar(&waitingForAdoRequestIDLabel, "waiting-for-ado-request-id-label", "waiting-for-ado-request-id", "The label to check if the job is waiting for an ADO request ID")
 	flag.StringVar(&defaultGPUModel, "default-gpu-model", "", "The default GPU model to use if not specified in the job")
 	flag.StringVar(&defaultAutoconfModelVersion, "default-autoconf-model-version", "2.0.0", "The default autoconf model version to use")
+	flag.StringVar(&recommendationAnnotationKey, "recommendation-annotation-key", "ado-autoconf.ibm.com/recommendation", "The annotation key to store recommendation results in JSON format")
 
 	opts := zap.Options{
 		Development: true,
@@ -281,6 +283,7 @@ func main() {
 		PatchCPURequest:             patchCPURequest,
 		DefaultGPUModel:             defaultGPUModel,
 		AutoconfModelVersion:        defaultAutoconfModelVersion,
+		RecommendationAnnotationKey: recommendationAnnotationKey,
 	}
 
 	if enableAppWrapper {
