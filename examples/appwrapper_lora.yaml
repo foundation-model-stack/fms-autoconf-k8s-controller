@@ -66,8 +66,10 @@ spec:
                       resources:
                         requests:
                           memory: 400Gi
+                          nvidia.com/gpu: 8
                         limits:
                           memory: 400Gi
+                          nvidia.com/gpu: 8
                       command:
                         - sh
                         - -c

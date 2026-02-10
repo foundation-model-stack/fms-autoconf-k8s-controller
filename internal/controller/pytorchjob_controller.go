@@ -28,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	v1api "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
@@ -266,11 +267,12 @@ func (r *PatchingInstructions) UpdatePyTorchJob(job *kubeflowv1.PyTorchJob, requ
 	if len(replicaErrors) > 0 {
 		return RecommenderRequest{RequestID: requestID, Pending: false}, nil, errors.Join(replicaErrors...)
 	}
-
 	minGPURecommenderInput, err := ExtractMinGPURecommenderInput(job, r.DefaultGPUModel, r.AutoconfModelVersion, log)
 
 	if err != nil {
 		return RecommenderRequest{RequestID: requestID, Pending: false}, nil, errors.Join(fmt.Errorf("cannot extract minimum resource requirements for PyTorch job %s", job.Name), err)
+	} else {
+		log.V(1).Info("Requesting recommendation from recommender", "features", minGPURecommenderInput)
 	}
 
 	var recs *ResourceRequirements = nil
@@ -396,18 +398,18 @@ func (r *PyTorchJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	job := &kubeflowv1.PyTorchJob{}
 
 	if err := r.Get(ctx, req.NamespacedName, job); err != nil {
-		log.V(4).Info("unable to fetch AppWrapper", "err", err)
+		log.V(4).Info("unable to fetch PyTorchJob", "err", err)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	original := job.DeepCopy()
-
 	if job.Labels[r.DoneLabelKey] == r.DoneLabelValue {
-		log.V(1).Info("PyTorchJob is already updated")
+		log.Info("PyTorchJob is already updated")
 		return ctrl.Result{}, nil
 	}
 
 	log.Info("Reconciling PyTorchJob")
+
+	original := job.DeepCopy()
 
 	rr, _, err := r.UpdatePyTorchJob(job, job.Labels[r.WaitingForAdoRequestIDLabel], log)
 
@@ -428,40 +430,68 @@ func (r *PyTorchJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	if rr.RecommendationJSON != "" {
-		// VV: this means that we got an answer from the recommender
-		// it can either be a recommendation or an error.
-		// In both cases, we update the Job and mark it as done.
-		// We also include the recommender's output as an annotation.
+		// VV: We got an answer from the recommender (either recommendation or error)
+		// Never look at either of these objects again
+		delete(original.Labels, r.WatchLabelKey)
+		// VV: Don't delete the label r.WaitingForAdoRequestIDLabel - users may want to check that request ID
 
+		if r.DoneLabelKey != "kueue.x-k8s.io/queue-name" {
+			// VV: The vpytorchjobs.kb.io webhook forbids mutating the Kueue label name
+			original.Labels[r.DoneLabelKey] = r.DoneLabelValue
+		}
+		delete(job.Labels, r.WatchLabelKey)
+
+		if err := r.Update(ctx, original); err != nil {
+			return handleUpdateWrapperError(err, log)
+		}
+
+		// VV: Label and annotate the derived job
 		job.Labels[r.DoneLabelKey] = r.DoneLabelValue
-		delete(job.Labels, r.WaitingForAdoRequestIDLabel)
 
 		if job.Annotations == nil {
 			job.Annotations = make(map[string]string)
 		}
 		job.Annotations[r.RecommendationAnnotationKey] = rr.RecommendationJSON
 
-		if err := r.Patch(ctx, job, client.MergeFrom(original)); err != nil {
-			return handleUpdateWrapperError(err, log)
-		}
-
 		if rr.AppliedRecommendation {
-			log.Info("PyTorchJob is updated with recommendations")
+			// VV: The vpytorchjobs.kb.io webhook forbids updating the kueue label so for integration with Kueue
+			// We'll create a new object, just like we do with AppWrapper
+
+			job.GenerateName = strings.TrimSuffix(original.Name, "-") + "-"
+			job.Name = ""
+			job.ResourceVersion = ""
+
+			job.OwnerReferences = []v1api.OwnerReference{
+				{
+					APIVersion: original.APIVersion,
+					Kind:       original.Kind,
+					Name:       original.Name,
+					UID:        original.UID,
+				},
+			}
+
+			if err := r.Create(ctx, job); err != nil {
+				log.Error(err, "unable to create a new PyTorchJob")
+				return ctrl.Result{}, err
+			}
+
+			log.Info("Created new PyTorchJob with recommendations", "name", job.Name)
 
 			r.Recorder.Event(
-				job,
+				original,
 				corev1.EventTypeNormal,
 				"PatchedWithRecommendations",
-				"PyTorchJob updated with recommended resource requirements",
+				"Created new PyTorchJob with recommended resource requirements",
 			)
 		} else {
+			// No recommendation - mark original as done without creating new one
 			log.Info("PyTorchJob marked as processed - no recommendation available")
 
 			r.Recorder.Event(
-				job,
+				original,
 				corev1.EventTypeWarning,
 				"NoRecommendationAvailable",
-				"Recommendation engine could not generate recommendations; job proceeding without modifications",
+				"Recommendation engine could not generate recommendations; PyTorchJob proceeding without modifications",
 			)
 		}
 
