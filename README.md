@@ -93,7 +93,7 @@ If you prefer to run the controller in-cluster (e.g., as a `Deployment`), the hi
 Below are the controller’s command-line options:
 
 ### Core behavior
-- `--default-autoconf-model-version string` — Default autoconf model version to use (default `2.0.0`).
+- `--default-autoconf-model-version string` — Default autoconf model version to use (default `3.1.0`).
 - `--default-gpu-model string` — Default GPU model if not specified in the job.
 - `--patch-cpu-request` — Set job CPU request/limit to `max(1, 2 * NUM_GPUS)` (default `true`).
 - `--unsuspend-patched-jobs` — Unsuspend jobs after patching.

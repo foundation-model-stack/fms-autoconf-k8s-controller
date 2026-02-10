@@ -152,7 +152,7 @@ func TestExtractMinGPURecommenderInputNoEnvVars(t *testing.T) {
 	job := pyTorchJobWithCommandLineWithEnvVars()
 	log, _ := logr.FromContext(context.TODO())
 
-	minGpuRecommenderInput, err := ExtractMinGPURecommenderInput(&job, "NVIDIA-A100-SXM4-80GB", "2.0.0", log)
+	minGpuRecommenderInput, err := ExtractMinGPURecommenderInput(&job, "NVIDIA-A100-SXM4-80GB", "3.1.0", log)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -164,7 +164,7 @@ func TestExtractMinGPURecommenderInputNoEnvVars(t *testing.T) {
 		GPUModel:        "NVIDIA-A100-SXM4-80GB",
 		TokensPerSample: 8192,
 		BatchSize:       16,
-		ModelVersion:    "2.0.0",
+		ModelVersion:    "3.1.0",
 	}
 
 	if !reflect.DeepEqual(minGpuRecommenderInput, expected) {

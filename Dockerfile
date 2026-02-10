@@ -46,7 +46,7 @@ WORKDIR /workspace
 # script by providing the following CLI argument to manager:
 # --path-wrapper-script=/workspace/wrapper_autoconf.py
 COPY cmd/wrapper_autoconf.py /workspace/wrapper_autoconf.py
-RUN pip install --no-cache-dir ado-autoconf
+RUN pip install --no-cache-dir ado-autoconf==1.5.0 ipython
 
 USER 65532:65532
 
