@@ -44,7 +44,7 @@ You can run the controller as a local process while it manages one or more names
 1. Create and activate a Python virtual environment, then install the ADO autoconf client:
    ```bash
    python3 -m venv .venv && source .venv/bin/activate
-   pip install ado-autoconf
+   pip install ado-autoconf==1.5.0 ipython
    ```
 2. Log in to your cluster (via `kubectl` or `oc`).
 3. Build the controller locally:
