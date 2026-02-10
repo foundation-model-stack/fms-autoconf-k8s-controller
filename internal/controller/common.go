@@ -709,6 +709,77 @@ func ConvertCommandlineOptionsToAutoConfFields(config map[string]string, env []v
 	delete(config, "--model_name_or_path")
 }
 
+// extractGPUModelFromNodeSelector checks if nodeSelector has the key "nvidia.com/gpu.product"
+// and returns its value. Returns empty string if not found.
+func extractGPUModelFromNodeSelector(nodeSelector map[string]string) string {
+	if nodeSelector == nil {
+		return ""
+	}
+
+	if gpuModel, exists := nodeSelector["nvidia.com/gpu.product"]; exists {
+		return gpuModel
+	}
+
+	return ""
+}
+
+// extractGPUModelFromNodeAffinity checks if nodeAffinity has a rule that specifies
+// exactly one value for the label "nvidia.com/gpu.product".
+// Only checks requiredDuringSchedulingIgnoredDuringExecution rules with operator In.
+// Returns empty string if not found or if multiple values are specified.
+func extractGPUModelFromNodeAffinity(nodeAffinity *v1.NodeAffinity) string {
+	if nodeAffinity == nil {
+		return ""
+	}
+
+	if nodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution == nil {
+		return ""
+	}
+
+	// Check all NodeSelectorTerms
+	for _, term := range nodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms {
+		for _, expr := range term.MatchExpressions {
+			// Look for nvidia.com/gpu.product with operator In and exactly 1 value
+			if expr.Key == "nvidia.com/gpu.product" &&
+				expr.Operator == v1.NodeSelectorOpIn &&
+				len(expr.Values) == 1 {
+				return expr.Values[0]
+			}
+		}
+	}
+
+	return ""
+}
+
+// extractGPUModelFromPodSpec attempts to auto-discover the GPU model from a PodSpec
+// using the following fallback chain:
+// 1. AUTOCONF_GPU_MODEL environment variable
+// 2. nodeSelector with key "nvidia.com/gpu.product"
+// 3. nodeAffinity with exactly 1 value for "nvidia.com/gpu.product"
+// Returns the GPU model string, or empty string if not found.
+func extractGPUModelFromPodSpec(podSpec *v1.PodSpec) string {
+	// Check environment variables first
+	for _, env := range podSpec.Containers[0].Env {
+		if env.Name == "AUTOCONF_GPU_MODEL" && env.Value != "" {
+			return env.Value
+		}
+	}
+
+	// Try nodeSelector
+	if gpuModel := extractGPUModelFromNodeSelector(podSpec.NodeSelector); gpuModel != "" {
+		return gpuModel
+	}
+
+	// Try nodeAffinity
+	if podSpec.Affinity != nil {
+		if gpuModel := extractGPUModelFromNodeAffinity(podSpec.Affinity.NodeAffinity); gpuModel != "" {
+			return gpuModel
+		}
+	}
+
+	return ""
+}
+
 // Parse the commandline in containers[0] and its environment variables to extract information relevant to MinGPURecommenderInput
 func ExtractPartialInformationFromCommandlineAndEnvVars(job *kubeflowv1.PyTorchJob) (map[string]string, error) {
 	config := map[string]string{}
@@ -757,8 +828,18 @@ func ExtractMinGPURecommenderInput(job *kubeflowv1.PyTorchJob, defaultGPUModel, 
 		}
 	}
 
-	if defaultGPUModel != "" {
-		config["AUTOCONF_GPU_MODEL"] = defaultGPUModel
+	// VV: If AUTOCONF_GPU_MODEL override is missing, extract value from podSpec
+	if _, exists := config["AUTOCONF_GPU_MODEL"]; !exists {
+		podSpec := &primary.Template.Spec
+		gpuModel := extractGPUModelFromPodSpec(podSpec)
+
+		if gpuModel == "" && defaultGPUModel != "" {
+			gpuModel = defaultGPUModel
+		}
+
+		if gpuModel != "" {
+			config["AUTOCONF_GPU_MODEL"] = gpuModel
+		}
 	}
 
 	if len(config) != len(envVarNames) {

@@ -15,8 +15,8 @@ spec:
       restartPolicy: Never
       template:
         spec:
-          # nodeSelector:
-          #   nvidia.com/gpu.product: NVIDIA-A100-80GB-PCIe
+          nodeSelector:
+            nvidia.com/gpu.product: NVIDIA-A100-80GB-PCIe
           volumes:
             - name: hf-models-pvc
               persistentVolumeClaim:
@@ -31,7 +31,7 @@ spec:
             allowPrivilegeEscalation: false
           containers:
             - name: pytorch
-              image: quay.io/modh/fms-hf-tuning:v3.0.0
+              image: quay.io/modh/fms-hf-tuning:v3.1.0
               imagePullPolicy: IfNotPresent
               securityContext:
                 allowPrivilegeEscalation: false
