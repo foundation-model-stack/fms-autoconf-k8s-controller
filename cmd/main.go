@@ -74,7 +74,7 @@ func main() {
 	var enableAppWrapper, enablePyTorchJob bool
 	var pathWrapperScript, urlAdo, waitingForAdoRequestIDLabel string
 	var patchCPURequest bool
-	var unsuspendPatchedJobs bool
+	var unsuspendDerivedJobs bool
 	var defaultGPUModel string
 	var defaultAutoconfModelVersion string
 	var recommendationAnnotationKey string
@@ -104,15 +104,15 @@ func main() {
 	flag.StringVar(&watchLabelValue, "watch-label-value", "resource-requirements-appwrapper",
 		"Limits controller to monitor objects with label @watch-label-key=@watch-label-value")
 	flag.StringVar(&doneLabelKey, "done-label-key", "autoconf-plugin-done",
-		"Controller inserts @done-label-key=@done-label-value label when it's done patching an object")
+		"Controller inserts @done-label-key=@done-label-value label on original object when processing is complete. Not set if key is kueue.x-k8s.io/queue-name")
 	flag.StringVar(&doneLabelValue, "done-label-value", "yes",
-		"Controller inserts @done-label-key=@done-label-value label when it's done patching an object")
+		"Controller inserts @done-label-key=@done-label-value label on original object when processing is complete")
 	flag.BoolVar(&enableAppWrapper, "enable-appwrapper", false,
-		"If set, plugin will monitor and patch AppWrapper objects")
+		"If set, plugin will monitor AppWrapper objects and create derived objects with recommendations")
 	flag.BoolVar(&enablePyTorchJob, "enable-pytorchjob", false,
-		"If set, plugin will monitor and patch PytorchJob objects")
-	flag.BoolVar(&unsuspendPatchedJobs, "unsuspend-patched-jobs", false, "If set, the plugin will unsuspend patched jobs")
-	flag.BoolVar(&patchCPURequest, "patch-cpu-request", true, "If set, the plugin will set the CPU request and limit of jobs to max(1, 2 * NUM_GPUS)")
+		"If set, plugin will monitor PytorchJob objects and create derived objects with recommendations")
+	flag.BoolVar(&unsuspendDerivedJobs, "unsuspend-derived-jobs", false, "If set, the plugin will unsuspend derived jobs after creation")
+	flag.BoolVar(&patchCPURequest, "patch-cpu-request", true, "If set, the plugin will set the CPU request and limit of derived jobs to max(1, 2 * NUM_GPUS)")
 	flag.StringVar(&pathWrapperScript, "path-wrapper-script", "",
 		"Path to the python wrapper script for running the models locally. Mutually exclusive with --url-ado. Must set exactly one")
 	flag.StringVar(&urlAdo, "url-ado", "", "The URL to the ado REST API serving the models. Mutually exclusive with --path-wrapper-script. Must set exactly one")
@@ -276,7 +276,7 @@ func main() {
 		DoneLabelKey:                doneLabelKey,
 		DoneLabelValue:              doneLabelValue,
 		WatchLabelKey:               watchLabelKey,
-		UnsuspendPatchedJobs:        unsuspendPatchedJobs,
+		UnsuspendDerivedJobs:        unsuspendDerivedJobs,
 		PathWrapperScript:           pathWrapperScript,
 		UrlAdo:                      urlAdo,
 		WaitingForAdoRequestIDLabel: waitingForAdoRequestIDLabel,

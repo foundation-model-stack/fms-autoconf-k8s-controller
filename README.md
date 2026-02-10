@@ -13,9 +13,9 @@ The controller inspects the command line of your AI jobs (either `PyTorchJob` ob
 - Effective batch size (i.e., `per_device_batch_size * NUM_GPUS`)
 - Maximum sequence length
 
-It combines these with the target GPU model to request recommendations from the `autoconf` experiment and then:
-- **Patches** the resource requests/limits of `PyTorchJob` objects, or
-- **Creates** a new `AppWrapper` (when direct patching of a nested `PyTorchJob` is not supported by `AppWrapper`).
+It combines these with the target GPU model to request recommendations from the `autoconf` experiment and then **creates new derived objects** with the recommended resource requirements:
+- For `PyTorchJob` objects, and
+- For `AppWrapper` objects that contain a `PyTorchJob` object
 
 We wish to use this controller to **enhance the execution of AI workloads on Kubernetes clusters** such that they use the right number of GPUs so as to avoid going out of GPU memory.
 The design of the controller enables us to explore different algorithms for resource recommendation which we plan to explore in the future.
@@ -59,7 +59,7 @@ You can run the controller as a local process while it manages one or more names
      --namespaces "tuning" \
      --enable-appwrapper=true \
      --enable-pytorchjob=true \
-     --unsuspend-patched-jobs=false \
+     --unsuspend-derived-jobs=false \
      --default-gpu-model=NVIDIA-A100-SXM4-80GB \
      --path-wrapper-script=./cmd/wrapper_autoconf.py
    ```
@@ -79,11 +79,11 @@ Example `AppWrapper` and `PyTorchJob` manifests are available under [`examples`]
 If you prefer to run the controller in-cluster (e.g., as a `Deployment`), the high-level process is:
 
 1. **Build an image** for the controller.
-2. **Create RBAC**: ServiceAccount, Role/ClusterRole, and bindings that permit reading/patching the resources you plan to manage (i.e. `AppWrapper` and/or `PyTorchJob`).
+2. **Create RBAC**: ServiceAccount, Role/ClusterRole, and bindings that permit reading/updating/creating the resources you plan to manage (i.e. `AppWrapper` and/or `PyTorchJob`). The controller needs `read` and `create` permissions.
 3. **Deploy a `Deployment`** for the controller, setting the desired command-line flags (see **Configuration** below). Enable leader election if you run multiple replicas.
 4. **Optionally expose metrics/webhooks** via a `Service` if you enable those endpoints.
 5. **Label workloads** so the controller can discover them (see `--watch-label-key` / `--watch-label-value`), then create your `AppWrapper`/`PyTorchJob` objects.
-6. **Observe logs and job status** to confirm resources are being recommended and applied as expected.
+6. **Observe logs and job status** to confirm resources are being recommended and applied as expected. The controller will create new derived objects with owner references to the originals.
 
 
 ---
@@ -95,8 +95,8 @@ Below are the controller’s command-line options:
 ### Core behavior
 - `--default-autoconf-model-version string` — Default autoconf model version to use (default `3.1.0`).
 - `--default-gpu-model string` — Default GPU model if not specified in the job.
-- `--patch-cpu-request` — Set job CPU request/limit to `max(1, 2 * NUM_GPUS)` (default `true`).
-- `--unsuspend-patched-jobs` — Unsuspend jobs after patching.
+- `--patch-cpu-request` — Set job CPU request/limit to `max(1, 2 * NUM_GPUS)` in derived objects (default `true`).
+- `--unsuspend-derived-jobs` — Unsuspend derived jobs after creation.
 - `--path-wrapper-script string` — Path to the local Python wrapper for running models. **Mutually exclusive** with `--url-ado`. Exactly one of these must be set.
 - `--url-ado string` — URL of the ADO REST API serving the models. **Mutually exclusive** with `--path-wrapper-script`. Exactly one of these must be set.
 
@@ -104,12 +104,12 @@ Below are the controller’s command-line options:
 - `--namespaces string` — Comma-separated list of namespaces to watch.
 - `--watch-label-key string` — Limit monitoring to objects labeled `key=value` (default key `autoconf-plugin-name`).
 - `--watch-label-value string` — Label value used with `--watch-label-key` (default `resource-requirements-appwrapper`).
-- `--enable-appwrapper` — Watch and patch `AppWrapper` objects.
-- `--enable-pytorchjob` — Watch and patch `PyTorchJob` objects.
+- `--enable-appwrapper` — Watch `AppWrapper` objects and create derived objects with recommendations.
+- `--enable-pytorchjob` — Watch `PyTorchJob` objects and create derived objects with recommendations.
 
 ### Completion labeling
-- `--done-label-key string` — Label key inserted when patching is complete (default `autoconf-plugin-done`).
-- `--done-label-value string` — Label value inserted when patching is complete (default `yes`).
+- `--done-label-key string` — Label key inserted on original object when processing is complete (default `autoconf-plugin-done`). Not set if key is `kueue.x-k8s.io/queue-name`.
+- `--done-label-value string` — Label value inserted on original object when processing is complete (default `yes`).
 - `--waiting-for-ado-request-id-label string` — Label used to mark jobs waiting for an ADO request ID (default `waiting-for-ado-request-id`).
 - `--recommendation-annotation-key string` — Annotation key to store recommendation results in JSON format (default `ado-autoconf.ibm.com/recommendation`).
 

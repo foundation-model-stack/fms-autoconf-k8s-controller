@@ -60,7 +60,7 @@ type PatchingInstructions struct {
 	DoneLabelKey                string
 	DoneLabelValue              string
 	WatchLabelKey               string
-	UnsuspendPatchedJobs        bool
+	UnsuspendDerivedJobs        bool
 	PathWrapperScript           string
 	UrlAdo                      string
 	WaitingForAdoRequestIDLabel string
@@ -75,7 +75,7 @@ func (p *PatchingInstructions) Copy() PatchingInstructions {
 		DoneLabelKey:                p.DoneLabelKey,
 		DoneLabelValue:              p.DoneLabelValue,
 		WatchLabelKey:               p.WatchLabelKey,
-		UnsuspendPatchedJobs:        p.UnsuspendPatchedJobs,
+		UnsuspendDerivedJobs:        p.UnsuspendDerivedJobs,
 		PathWrapperScript:           p.PathWrapperScript,
 		UrlAdo:                      p.UrlAdo,
 		WaitingForAdoRequestIDLabel: p.WaitingForAdoRequestIDLabel,
@@ -363,7 +363,7 @@ func (r *PatchingInstructions) UpdatePyTorchJob(job *kubeflowv1.PyTorchJob, requ
 		}
 	}
 
-	if r.UnsuspendPatchedJobs {
+	if r.UnsuspendDerivedJobs {
 		job.Spec.RunPolicy.Suspend = ptr.To(false)
 	}
 
