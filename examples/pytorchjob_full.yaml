@@ -4,7 +4,7 @@
 apiVersion: "kubeflow.org/v1"
 kind: "PyTorchJob"
 metadata:
-  name: autoconf-lora-granite-3-8b
+  name: simple
   labels:
     kueue.x-k8s.io/queue-name: fake
     autoconf-plugin-name: resource-requirements-appwrapper
@@ -18,12 +18,6 @@ spec:
           nodeSelector:
             nvidia.com/gpu.product: NVIDIA-A100-80GB-PCIe
           volumes:
-            - name: hf-models-pvc
-              persistentVolumeClaim:
-                claimName: ray-disorch-storage
-            - name: ray-disorch-storage
-              persistentVolumeClaim:
-                claimName: ray-disorch-storage
             - name: dshm
               emptyDir:
                 medium: Memory
@@ -31,45 +25,44 @@ spec:
             allowPrivilegeEscalation: false
           containers:
             - name: pytorch
-              image: quay.io/modh/fms-hf-tuning:v3.1.0
+              image: quay.io/ado/ado:1.5.0-sft-py312-cu121-ofed2410v1140
               imagePullPolicy: IfNotPresent
               securityContext:
                 allowPrivilegeEscalation: false
               env:
                 - name: HF_HOME
-                  value: /hf-models-pvc/huggingface_home
-                # The fms-hf-tuning images do not include the path to the `accelerate` binary in $PATH
-                - name: PATH
-                  value: "/home/tuning/.local/bin:/home/tuning/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+                  value: /tmp/huggingface_home
 
               volumeMounts:
-                - name: hf-models-pvc
-                  mountPath: /hf-models-pvc
-                - name: ray-disorch-storage
-                  mountPath: /data
                 - name: dshm
                   mountPath: "/dev/shm"
               resources:
                 requests:
-                  memory: 400Gi
+                  memory: 80Gi
                   nvidia.com/gpu: 8
                 limits:
-                  memory: 400Gi
+                  memory: 80Gi
                   nvidia.com/gpu: 8
+              workingDir: /tmp/
               command:
                 - sh
                 - -c
                 - |
+                  python -m venv .venv
+                  . .venv/bin/activate
+                  pip install fms-hf-tuning ado-core ado-sfttrainer
+                  pip install --no-build-isolation fms-hf-tuning[flash-attn]
+                  sfttrainer_generate_dataset_text -o /tmp/artificial-dataset/news-tokens-16384plus-entries-4096.jsonl
                   accelerate launch --use_fsdp --fsdp_auto_wrap_policy=TRANSFORMER_BASED_WRAP --fsdp_forward_prefetch=false \
                   --fsdp_offload_params=false --fsdp_sharding_strategy=HYBRID_SHARD --fsdp_state_dict_type=FULL_STATE_DICT \
                   --fsdp_cpu_ram_efficient_loading=true --fsdp_sync_module_states=true --dynamo_backend="no" --machine_rank="${RANK}" \
                   --main_process_ip="${MASTER_ADDR}" --main_process_port="${MASTER_PORT}" --mixed_precision="no" \
-                  --num_machines="1" --num_processes="1" --rdzv_backend="static" --same_network \
+                  --num_machines="1" --num_processes="8" --rdzv_backend="static" --same_network \
                   -m tuning.sft_trainer --log_level info --eval_strategy no --save_strategy no \
                   --learning_rate 1e-05 --weight_decay 0.0 --warmup_ratio 0.03 --lr_scheduler_type cosine \
                   --logging_steps 1 --include_tokens_per_second True --packing False --response_template "\n### Response:" \
-                  --dataset_text_field output --gradient_accumulation_steps 4 --gradient_checkpointing True --max_steps -1 \
-                  --num_train_epochs 1.0 --model_name_or_path "ibm-granite/granite-8b-code-base-4k" \
-                  --per_device_train_batch_size 8 --torch_dtype bfloat16 --max_seq_length 512 \
-                  --training_data_path /data/fms-hf-tuning/artificial-dataset/news-tokens-16384plus-entries-4096.jsonl \
-                  --output_dir /tmp/output/ --peft_method lora  --r 4 --lora_alpha 16 --target_modules q_proj v_proj --use_flash_attn True
+                  --dataset_text_field output --gradient_accumulation_steps 4 --gradient_checkpointing True --max_steps 5 \
+                  --model_name_or_path "ibm-granite/granite-3.1-3b-a800m-instruct" \
+                  --per_device_train_batch_size 1 --torch_dtype bfloat16 --max_seq_length 512 \
+                  --training_data_path /tmp/artificial-dataset/news-tokens-16384plus-entries-4096.jsonl \
+                  --output_dir /tmp/output/

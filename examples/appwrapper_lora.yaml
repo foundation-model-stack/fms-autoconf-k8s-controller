@@ -44,7 +44,7 @@ spec:
                     runAsUser: 0
                   containers:
                     - name: pytorch
-                      image: quay.io/modh/fms-hf-tuning:v3.0.0
+                      image: quay.io/modh/fms-hf-tuning:v3.1.0
                       imagePullPolicy: IfNotPresent
                       securityContext:
                         allowPrivilegeEscalation: false

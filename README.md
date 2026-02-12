@@ -29,6 +29,11 @@ Until that work lands, this controller demonstrates a way to interact with Kueue
 
 ## Examples
 
+The controller in action!
+
+https://github.com/user-attachments/assets/ac0a5a0a-8966-40bd-9fce-8100086acef7
+
+
 ### Test locally (no Docker image)
 You can run the controller as a local process while it manages one or more namespaces on your cluster.
 
