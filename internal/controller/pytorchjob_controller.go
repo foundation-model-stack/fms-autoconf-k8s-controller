@@ -60,29 +60,15 @@ type PatchingInstructions struct {
 	DoneLabelValue              string
 	WatchLabelKey               string
 	UnsuspendDerivedJobs        bool
-	PathWrapperScript           string
-	UrlAdo                      string
 	WaitingForAdoRequestIDLabel string
 	PatchCPURequest             bool
 	DefaultGPUModel             string
 	AutoconfModelVersion        string
 	RecommendationAnnotationKey string
-}
 
-func (p *PatchingInstructions) Copy() PatchingInstructions {
-	return PatchingInstructions{
-		DoneLabelKey:                p.DoneLabelKey,
-		DoneLabelValue:              p.DoneLabelValue,
-		WatchLabelKey:               p.WatchLabelKey,
-		UnsuspendDerivedJobs:        p.UnsuspendDerivedJobs,
-		PathWrapperScript:           p.PathWrapperScript,
-		UrlAdo:                      p.UrlAdo,
-		WaitingForAdoRequestIDLabel: p.WaitingForAdoRequestIDLabel,
-		PatchCPURequest:             p.PatchCPURequest,
-		DefaultGPUModel:             p.DefaultGPUModel,
-		AutoconfModelVersion:        p.AutoconfModelVersion,
-		RecommendationAnnotationKey: p.RecommendationAnnotationKey,
-	}
+	// Recommender interfaces - exactly one will be set
+	ImmediateRecommender ImmediateRecommender
+	DeferredRecommender  DeferredRecommender
 }
 
 // PyTorchJobReconciler reconciles a PyTorchJob object
@@ -270,60 +256,64 @@ func (r *PatchingInstructions) UpdatePyTorchJob(job *kubeflowv1.PyTorchJob, requ
 
 	if err != nil {
 		return RecommenderRequest{RequestID: requestID, Pending: false}, nil, errors.Join(fmt.Errorf("cannot extract minimum resource requirements for PyTorch job %s", job.Name), err)
-	} else {
-		log.V(1).Info("Requesting recommendation from recommender", "features", minGPURecommenderInput)
 	}
 
-	var recs *ResourceRequirements = nil
+	log.V(1).Info("Requesting recommendation from recommender", "features", minGPURecommenderInput)
 
-	if r.UrlAdo != "" {
-		// VV: When using an ADO REST API to compute the resource requirements we update a PyTorchJob object in 2 steps:
-		// 1. trigger the min_gpu_recommender custom_experiment to compute the resource requirements and receive a requestID
-		// 2. poll the status of the requestID and when it's done read it to get the recommended resource requirements
+	// Use the recommender interface to get recommendations
+	var result *RecommendationResult
+	var newRequestID string
+	var isPending bool
+
+	ctx := context.Background()
+
+	if r.ImmediateRecommender != nil {
+		// Immediate path - get result right away
+		result, err = r.ImmediateRecommender.GetRecommendation(ctx, minGPURecommenderInput)
+		isPending = false
+		newRequestID = ""
+
+	} else if r.DeferredRecommender != nil {
+		// Deferred path - initiate or check
 		if requestID == "" {
-			// VV: haven't triggered the custom_experiment yet
-			requestID, err = SendRequestToCalcMinimumResourceRequirements(minGPURecommenderInput, r.UrlAdo, log)
-			return RecommenderRequest{RequestID: requestID, Pending: true}, nil, err
+			// First call - initiate
+			newRequestID, err = r.DeferredRecommender.InitiateRecommendation(ctx, minGPURecommenderInput)
+			isPending = true
+			result = nil
 		} else {
-			// VV: check whether the custom_experiment has finished producing the recommended resource requirements
-			recs, err = CheckRequestToCalcMinimumResourceRequirements(minGPURecommenderInput, r.UrlAdo, requestID, log)
-
-			if err != nil {
-				return RecommenderRequest{RequestID: requestID, Pending: true}, nil, errors.Join(fmt.Errorf("failed to check request %s for PyTorch job %s", requestID, job.Name), err)
-			}
+			// Subsequent call - check status
+			result, err = r.DeferredRecommender.CheckRecommendation(ctx, requestID, minGPURecommenderInput)
+			newRequestID = requestID
+			isPending = (result == nil && err == nil)
 		}
-	} else if r.PathWrapperScript != "" {
-		rr := ResourceRequirements{}
-		rr, err = RunPythonWrapperToCalcMinimumResourceRequirements(minGPURecommenderInput, r.PathWrapperScript, log)
-
-		if err == nil {
-			recs = &rr
-		}
-
-		if err != nil {
-			return RecommenderRequest{RequestID: requestID, Pending: false}, nil, errors.Join(fmt.Errorf("cannot compute resource requirements for PyTorch job %s", job.Name), err)
-		}
+	} else {
+		return RecommenderRequest{RequestID: requestID, Pending: false}, nil, fmt.Errorf("no recommender configured")
 	}
 
-	if recs == nil {
+	if err != nil {
+		return RecommenderRequest{RequestID: newRequestID, Pending: isPending}, nil, err
+	}
+
+	if isPending {
 		// VV: The recommender is still working on it, try again later
-		return RecommenderRequest{RequestID: requestID, Pending: true}, nil, nil
+		return RecommenderRequest{RequestID: newRequestID, Pending: true}, nil, nil
 	}
 
 	// Check if recommendation was possible
-	if !recs.CanRecommend {
+	if !result.CanRecommend {
 		// Cannot recommend - create error JSON, do NOT patch the job
 		errorJSON, _ := json.Marshal(map[string]interface{}{
 			"error": "No recommendation",
 		})
 		return RecommenderRequest{
-			RequestID:             requestID,
+			RequestID:             newRequestID,
 			Pending:               false,
 			AppliedRecommendation: false,
 			RecommendationJSON:    string(errorJSON),
 		}, nil, nil
 	}
 
+	recs := result.Requirements
 	log.Info("computed resource requirements", "recs", recs)
 
 	// VV: the "Master" PyTorchReplica always has 1 Replica, the remaining ones go to the recsWorkers

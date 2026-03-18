@@ -272,18 +272,30 @@ func main() {
 
 	urlAdo = strings.TrimSuffix(urlAdo, "/")
 
+	// Instantiate the appropriate recommender based on configuration
+	var immediateRecommender controller.ImmediateRecommender
+	var deferredRecommender controller.DeferredRecommender
+
+	if pathWrapperScript != "" {
+		immediateRecommender = controller.NewPythonScriptRecommender(pathWrapperScript)
+		setupLog.Info("Using ImmediateRecommender with Python script", "path", pathWrapperScript)
+	} else if urlAdo != "" {
+		deferredRecommender = controller.NewRestAPIRecommender(urlAdo)
+		setupLog.Info("Using DeferredRecommender with REST API", "url", urlAdo)
+	}
+
 	pi := controller.PatchingInstructions{
 		DoneLabelKey:                doneLabelKey,
 		DoneLabelValue:              doneLabelValue,
 		WatchLabelKey:               watchLabelKey,
 		UnsuspendDerivedJobs:        unsuspendDerivedJobs,
-		PathWrapperScript:           pathWrapperScript,
-		UrlAdo:                      urlAdo,
 		WaitingForAdoRequestIDLabel: waitingForAdoRequestIDLabel,
 		PatchCPURequest:             patchCPURequest,
 		DefaultGPUModel:             defaultGPUModel,
 		AutoconfModelVersion:        defaultAutoconfModelVersion,
 		RecommendationAnnotationKey: recommendationAnnotationKey,
+		ImmediateRecommender:        immediateRecommender,
+		DeferredRecommender:         deferredRecommender,
 	}
 
 	if enableAppWrapper {
@@ -301,7 +313,7 @@ func main() {
 		if err := (&controller.PyTorchJobReconciler{
 			Client:               mgr.GetClient(),
 			Scheme:               mgr.GetScheme(),
-			PatchingInstructions: pi.Copy(),
+			PatchingInstructions: pi,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "PyTorchJob")
 			os.Exit(1)
