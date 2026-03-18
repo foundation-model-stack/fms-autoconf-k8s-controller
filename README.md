@@ -20,10 +20,19 @@ It combines these with the target GPU model to request recommendations from the 
 We wish to use this controller to **enhance the execution of AI workloads on Kubernetes clusters** such that they use the right number of GPUs so as to avoid going out of GPU memory.
 The design of the controller enables us to explore different algorithms for resource recommendation which we plan to explore in the future.
 
-### Kueue collaboration (design work in progress)
-We are working with the Kueue maintainers on a Kubernetes Enhancement Proposal (KEP) to improve how external Kubernetes controllers interact with jobs managed by Kueue (including AI workloads). The design discussion is tracked here: <https://github.com/kubernetes-sigs/kueue/issues/6915>.
+### Kueue Integration with AdmissionGatedBy
 
-Until that work lands, this controller demonstrates a way to interact with Kueue-managed jobs while operating within current Kueue capabilities.
+This controller integrates with Kueue's **AdmissionGatedBy** feature (available in Kueue v0.17+) to temporarily gate job admission while resource requirements are being computed.
+
+**How it works:**
+1. Users create Jobs with a valid LocalQueue name and the `kueue.x-k8s.io/admission-gated-by=autoconf.ibm/ado-min-gpu-recommender` annotation
+2. While the annotation is present, Kueue considers the job inadmissible and does not admit it
+3. The controller computes resource requirements and either:
+   - **For PyTorchJob**: Patches the existing job with recommendations and removes the AdmissionGatedBy annotation
+   - **For AppWrapper**: Creates a new derived object with recommendations (without the AdmissionGatedBy annotation)
+4. Once the annotation is removed, Kueue resumes normal admission checks and the job can be admitted
+
+This approach ensures jobs are not admitted until they have the correct resource requirements, preventing out-of-memory errors and resource waste.
 
 ---
 
@@ -68,12 +77,17 @@ You can run the controller as a local process while it manages one or more names
      --default-gpu-model=NVIDIA-A100-SXM4-80GB \
      --path-wrapper-script=./cmd/wrapper_autoconf.py
    ```
-5. Create an `AppWrapper` or `PyTorchJob` workload with the following labels:
+5. Create an `AppWrapper` or `PyTorchJob` workload with the following annotation and labels:
    ```yaml
-   # This setup both satisfies Kyverno (requires a queue-name) and
-   # allows Kueue to temporarily ignore the job until the controller updates it.
-   kueue.x-k8s.io/queue-name: fake
-   autoconf-plugin-name: resource-requirements-appwrapper
+   metadata:
+     annotations:
+       # Gates Kueue admission until controller removes it
+       kueue.x-k8s.io/admission-gated-by: "autoconf.ibm/ado-min-gpu-recommender"
+     labels:
+       # Valid LocalQueue name
+       kueue.x-k8s.io/queue-name: default-queue
+       # Triggers the autoconf controller
+       autoconf-plugin-name: resource-requirements-appwrapper
    ```
 
 Example `AppWrapper` and `PyTorchJob` manifests are available under [`examples`](./examples).

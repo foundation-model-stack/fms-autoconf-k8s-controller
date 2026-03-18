@@ -5,10 +5,13 @@ apiVersion: workload.codeflare.dev/v1beta2
 kind: AppWrapper
 metadata:
   name: autoconf-lora-granite-3-8b
+  annotations:
+    # This annotation gates Kueue admission until the controller removes it
+    kueue.x-k8s.io/admission-gated-by: "autoconf.com/autoconf-plugin"
   labels:
-    # This is a trick that circumvents a) the Kyverno policy blocking us from creating objects without a queue-name,
-    # and b) a feature gap in Kueue for temporarily ignoring a Job
-    kueue.x-k8s.io/queue-name: fake
+    # Valid LocalQueue name (controller will copy this to derived AppWrapper)
+    kueue.x-k8s.io/queue-name: default-queue
+    # Label to trigger the autoconf controller
     autoconf-plugin-name: resource-requirements-appwrapper
 spec:
   components:

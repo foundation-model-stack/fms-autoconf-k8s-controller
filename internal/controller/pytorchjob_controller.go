@@ -28,7 +28,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	v1api "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
@@ -431,67 +430,84 @@ func (r *PyTorchJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	if rr.RecommendationJSON != "" {
 		// VV: We got an answer from the recommender (either recommendation or error)
-		// Never look at either of these objects again
-		delete(original.Labels, r.WatchLabelKey)
-		// VV: Don't delete the label r.WaitingForAdoRequestIDLabel - users may want to check that request ID
 
+		// Remove watch label from original so we don't process it again
+		delete(original.Labels, r.WatchLabelKey)
+
+		// Add done label to original
 		if r.DoneLabelKey != "kueue.x-k8s.io/queue-name" {
 			// VV: The vpytorchjobs.kb.io webhook forbids mutating the Kueue label name
 			original.Labels[r.DoneLabelKey] = r.DoneLabelValue
 		}
-		delete(job.Labels, r.WatchLabelKey)
 
 		if err := r.Update(ctx, original); err != nil {
 			return handleUpdateWrapperError(err, log)
 		}
 
-		// VV: Label and annotate the derived job
-		job.Labels[r.DoneLabelKey] = r.DoneLabelValue
-
-		if job.Annotations == nil {
-			job.Annotations = make(map[string]string)
-		}
-		job.Annotations[r.RecommendationAnnotationKey] = rr.RecommendationJSON
-
 		if rr.AppliedRecommendation {
-			// VV: The vpytorchjobs.kb.io webhook forbids updating the kueue label so for integration with Kueue
-			// We'll create a new object, just like we do with AppWrapper
+			// For PyTorchJob, PATCH the existing object instead of creating a new one
 
-			job.GenerateName = strings.TrimSuffix(original.Name, "-") + "-"
-			job.Name = ""
-			job.ResourceVersion = ""
+			// Remove watch label from job
+			delete(job.Labels, r.WatchLabelKey)
 
-			job.OwnerReferences = []v1api.OwnerReference{
-				{
-					APIVersion: original.APIVersion,
-					Kind:       original.Kind,
-					Name:       original.Name,
-					UID:        original.UID,
-				},
+			// Add done label to job
+			job.Labels[r.DoneLabelKey] = r.DoneLabelValue
+
+			// Add recommendation annotation
+			if job.Annotations == nil {
+				job.Annotations = make(map[string]string)
 			}
+			job.Annotations[r.RecommendationAnnotationKey] = rr.RecommendationJSON
 
-			if err := r.Create(ctx, job); err != nil {
-				log.Error(err, "unable to create a new PyTorchJob")
+			// Remove AdmissionGatedBy annotation to ungate Kueue admission
+			delete(job.Annotations, KueueAdmissionGatedByAnnotation)
+
+			// Patch the existing PyTorchJob with recommendations
+			if err := r.Patch(ctx, job, client.MergeFrom(original)); err != nil {
+				log.Error(err, "unable to patch PyTorchJob")
 				return ctrl.Result{}, err
 			}
 
-			log.Info("Created new PyTorchJob with recommendations", "name", job.Name)
+			log.Info("Patched PyTorchJob with recommendations", "name", job.Name)
 
 			r.Recorder.Event(
-				original,
+				job,
 				corev1.EventTypeNormal,
 				"PatchedWithRecommendations",
-				"Created new PyTorchJob with recommended resource requirements",
+				"Patched PyTorchJob with recommended resource requirements and removed admission gate",
 			)
 		} else {
-			// No recommendation - mark original as done without creating new one
-			log.Info("PyTorchJob marked as processed - no recommendation available")
+			// No recommendation - ungate the original object so it can proceed
+			log.Info("PyTorchJob marked as processed - no recommendation available, ungating for admission")
+
+			// Fetch the latest version of the original to ungate it
+			latestOriginal := &kubeflowv1.PyTorchJob{}
+			if err := r.Get(ctx, client.ObjectKeyFromObject(original), latestOriginal); err != nil {
+				log.Error(err, "unable to fetch latest PyTorchJob for ungating")
+				return ctrl.Result{}, err
+			}
+
+			// Remove AdmissionGatedBy annotation to ungate Kueue admission
+			if latestOriginal.Annotations != nil {
+				delete(latestOriginal.Annotations, KueueAdmissionGatedByAnnotation)
+			}
+
+			// Add recommendation annotation with error
+			if latestOriginal.Annotations == nil {
+				latestOriginal.Annotations = make(map[string]string)
+			}
+			latestOriginal.Annotations[r.RecommendationAnnotationKey] = rr.RecommendationJSON
+
+			if err := r.Update(ctx, latestOriginal); err != nil {
+				log.Error(err, "unable to ungate PyTorchJob")
+				return ctrl.Result{}, err
+			}
 
 			r.Recorder.Event(
-				original,
+				latestOriginal,
 				corev1.EventTypeWarning,
 				"NoRecommendationAvailable",
-				"Recommendation engine could not generate recommendations; PyTorchJob proceeding without modifications",
+				"Recommendation engine could not generate recommendations; PyTorchJob ungated to proceed without modifications",
 			)
 		}
 

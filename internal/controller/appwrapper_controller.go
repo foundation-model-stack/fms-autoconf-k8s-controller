@@ -150,6 +150,9 @@ func (r *AppWrapperReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 		job.Annotations[r.RecommendationAnnotationKey] = rr.RecommendationJSON
 
+		// Remove AdmissionGatedBy annotation from the job that will become the derived object
+		delete(job.Annotations, KueueAdmissionGatedByAnnotation)
+
 		delete(original.Labels, r.WatchLabelKey)
 
 		if err := r.Update(ctx, original); err != nil {
@@ -188,14 +191,37 @@ func (r *AppWrapperReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				"Created new AppWrapper with recommended resource requirements",
 			)
 		} else {
-			// No recommendation - mark original as done without creating new one
-			log.Info("AppWrapper marked as processed - no recommendation available")
+			// No recommendation - ungate the original object so it can proceed
+			log.Info("AppWrapper marked as processed - no recommendation available, ungating for admission")
+
+			// Fetch the latest version of the original to ungate it
+			latestOriginal := &awv1beta2.AppWrapper{}
+			if err := r.Get(ctx, client.ObjectKeyFromObject(original), latestOriginal); err != nil {
+				log.Error(err, "unable to fetch latest AppWrapper for ungating")
+				return ctrl.Result{}, err
+			}
+
+			// Remove AdmissionGatedBy annotation to ungate Kueue admission
+			if latestOriginal.Annotations != nil {
+				delete(latestOriginal.Annotations, KueueAdmissionGatedByAnnotation)
+			}
+
+			// Add recommendation annotation with error (already set on job at line 151)
+			if latestOriginal.Annotations == nil {
+				latestOriginal.Annotations = make(map[string]string)
+			}
+			latestOriginal.Annotations[r.RecommendationAnnotationKey] = rr.RecommendationJSON
+
+			if err := r.Update(ctx, latestOriginal); err != nil {
+				log.Error(err, "unable to ungate AppWrapper")
+				return ctrl.Result{}, err
+			}
 
 			r.Recorder.Event(
-				job,
+				latestOriginal,
 				corev1.EventTypeWarning,
 				"NoRecommendationAvailable",
-				"Recommendation engine could not generate recommendations; AppWrapper proceeding without modifications",
+				"Recommendation engine could not generate recommendations; AppWrapper ungated to proceed without modifications",
 			)
 		}
 

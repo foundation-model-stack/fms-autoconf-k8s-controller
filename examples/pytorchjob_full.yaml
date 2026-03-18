@@ -5,8 +5,13 @@ apiVersion: "kubeflow.org/v1"
 kind: "PyTorchJob"
 metadata:
   name: simple
+  annotations:
+    # This annotation gates Kueue admission until the controller removes it
+    kueue.x-k8s.io/admission-gated-by: "autoconf.com/autoconf-plugin"
   labels:
-    kueue.x-k8s.io/queue-name: fake
+    # Valid LocalQueue name (controller will use this after mutation)
+    kueue.x-k8s.io/queue-name: default-queue
+    # Label to trigger the autoconf controller
     autoconf-plugin-name: resource-requirements-appwrapper
 spec:
   pytorchReplicaSpecs:
