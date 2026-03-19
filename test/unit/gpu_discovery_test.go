@@ -1,11 +1,25 @@
-// Copyright (c) IBM Corporation
-// SPDX-License-Identifier: MIT
+/*
+Copyright 2025.
 
-package controller
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package unit
 
 import (
 	"testing"
 
+	"github.com/ibm/resource-requirements-appwrapper/internal/controller"
 	v1 "k8s.io/api/core/v1"
 )
 
@@ -52,7 +66,7 @@ func TestExtractGPUModelFromNodeSelector(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := extractGPUModelFromNodeSelector(tt.nodeSelector)
+			result := controller.ExtractGPUModelFromNodeSelector(tt.nodeSelector)
 			if result != tt.expected {
 				t.Errorf("expected %q, got %q", tt.expected, result)
 			}
@@ -202,7 +216,7 @@ func TestExtractGPUModelFromNodeAffinity(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := extractGPUModelFromNodeAffinity(tt.nodeAffinity)
+			result := controller.ExtractGPUModelFromNodeAffinity(tt.nodeAffinity)
 			if result != tt.expected {
 				t.Errorf("expected %q, got %q", tt.expected, result)
 			}
@@ -379,12 +393,10 @@ func TestExtractGPUModelFromPodSpec(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := extractGPUModelFromPodSpec(tt.podSpec)
+			result := controller.ExtractGPUModelFromPodSpec(tt.podSpec)
 			if result != tt.expected {
 				t.Errorf("expected %q, got %q", tt.expected, result)
 			}
 		})
 	}
 }
-
-// Made with Bob

@@ -14,12 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controller
+package testutil
 
 import (
 	"context"
 	"fmt"
 	"sync"
+
+	"github.com/ibm/resource-requirements-appwrapper/internal/controller"
 )
 
 // MockImmediateRecommender is a mock implementation of ImmediateRecommender
@@ -28,21 +30,21 @@ type MockImmediateRecommender struct {
 	mu sync.Mutex
 
 	// Result to return from GetRecommendation
-	Result *RecommendationResult
+	Result *controller.RecommendationResult
 	// Error to return from GetRecommendation
 	Err error
 
 	// Tracking
 	CallCount int
-	LastInput MinGPURecommenderInput
+	LastInput controller.MinGPURecommenderInput
 }
 
 // NewMockImmediateRecommender creates a new mock immediate recommender with
 // default successful response.
 func NewMockImmediateRecommender() *MockImmediateRecommender {
 	return &MockImmediateRecommender{
-		Result: &RecommendationResult{
-			Requirements: &ResourceRequirements{
+		Result: &controller.RecommendationResult{
+			Requirements: &controller.ResourceRequirements{
 				Workers:      2,
 				GPUs:         1,
 				CanRecommend: true,
@@ -53,7 +55,7 @@ func NewMockImmediateRecommender() *MockImmediateRecommender {
 }
 
 // GetRecommendation returns the configured result and error.
-func (m *MockImmediateRecommender) GetRecommendation(ctx context.Context, input MinGPURecommenderInput) (*RecommendationResult, error) {
+func (m *MockImmediateRecommender) GetRecommendation(ctx context.Context, input controller.MinGPURecommenderInput) (*controller.RecommendationResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -64,7 +66,7 @@ func (m *MockImmediateRecommender) GetRecommendation(ctx context.Context, input 
 }
 
 // SetResult configures the result to return.
-func (m *MockImmediateRecommender) SetResult(result *RecommendationResult) {
+func (m *MockImmediateRecommender) SetResult(result *controller.RecommendationResult) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Result = result
@@ -82,7 +84,7 @@ func (m *MockImmediateRecommender) Reset() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.CallCount = 0
-	m.LastInput = MinGPURecommenderInput{}
+	m.LastInput = controller.MinGPURecommenderInput{}
 }
 
 // MockDeferredRecommender is a mock implementation of DeferredRecommender
@@ -93,7 +95,7 @@ type MockDeferredRecommender struct {
 
 	// Configuration
 	// Result to return from CheckRecommendation when ready
-	Result *RecommendationResult
+	Result *controller.RecommendationResult
 	// Error to return from InitiateRecommendation
 	InitiateErr error
 	// Error to return from CheckRecommendation
@@ -104,7 +106,7 @@ type MockDeferredRecommender struct {
 	// State tracking
 	InitiateCallCount int
 	CheckCallCount    int
-	LastInput         MinGPURecommenderInput
+	LastInput         controller.MinGPURecommenderInput
 	LastRequestID     string
 	// Map of requestID -> number of times it's been checked
 	checkCounts map[string]int
@@ -114,8 +116,8 @@ type MockDeferredRecommender struct {
 // default successful response that returns immediately (no pending checks).
 func NewMockDeferredRecommender() *MockDeferredRecommender {
 	return &MockDeferredRecommender{
-		Result: &RecommendationResult{
-			Requirements: &ResourceRequirements{
+		Result: &controller.RecommendationResult{
+			Requirements: &controller.ResourceRequirements{
 				Workers:      2,
 				GPUs:         1,
 				CanRecommend: true,
@@ -128,7 +130,7 @@ func NewMockDeferredRecommender() *MockDeferredRecommender {
 }
 
 // InitiateRecommendation returns a mock request ID.
-func (m *MockDeferredRecommender) InitiateRecommendation(ctx context.Context, input MinGPURecommenderInput) (string, error) {
+func (m *MockDeferredRecommender) InitiateRecommendation(ctx context.Context, input controller.MinGPURecommenderInput) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -148,7 +150,7 @@ func (m *MockDeferredRecommender) InitiateRecommendation(ctx context.Context, in
 
 // CheckRecommendation simulates async behavior by returning nil for the first
 // PendingChecks calls, then returning the configured result.
-func (m *MockDeferredRecommender) CheckRecommendation(ctx context.Context, requestID string, input MinGPURecommenderInput) (*RecommendationResult, error) {
+func (m *MockDeferredRecommender) CheckRecommendation(ctx context.Context, requestID string, input controller.MinGPURecommenderInput) (*controller.RecommendationResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -172,7 +174,7 @@ func (m *MockDeferredRecommender) CheckRecommendation(ctx context.Context, reque
 }
 
 // SetResult configures the result to return.
-func (m *MockDeferredRecommender) SetResult(result *RecommendationResult) {
+func (m *MockDeferredRecommender) SetResult(result *controller.RecommendationResult) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Result = result
@@ -206,7 +208,7 @@ func (m *MockDeferredRecommender) Reset() {
 	defer m.mu.Unlock()
 	m.InitiateCallCount = 0
 	m.CheckCallCount = 0
-	m.LastInput = MinGPURecommenderInput{}
+	m.LastInput = controller.MinGPURecommenderInput{}
 	m.LastRequestID = ""
 	m.checkCounts = make(map[string]int)
 }

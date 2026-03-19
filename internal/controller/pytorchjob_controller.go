@@ -40,14 +40,6 @@ import (
 	kubeflowv1 "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 )
 
-// VV: this is an assumption in AppWrapper
-const (
-	PrimaryPyTorchReplica kubeflowv1.ReplicaType = "Master"
-	WorkerPyTorchReplica  kubeflowv1.ReplicaType = "Worker"
-)
-
-const GPUResourceRequirement corev1.ResourceName = "nvidia.com/gpu"
-
 type RecommenderRequest struct {
 	Pending               bool
 	AppliedRecommendation bool
@@ -421,21 +413,8 @@ func (r *PyTorchJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	if rr.RecommendationJSON != "" {
 		// VV: We got an answer from the recommender (either recommendation or error)
 
-		// Remove watch label from original so we don't process it again
-		delete(original.Labels, r.WatchLabelKey)
-
-		// Add done label to original
-		if r.DoneLabelKey != "kueue.x-k8s.io/queue-name" {
-			// VV: The vpytorchjobs.kb.io webhook forbids mutating the Kueue label name
-			original.Labels[r.DoneLabelKey] = r.DoneLabelValue
-		}
-
-		if err := r.Update(ctx, original); err != nil {
-			return handleUpdateWrapperError(err, log)
-		}
-
 		if rr.AppliedRecommendation {
-			// For PyTorchJob, PATCH the existing object instead of creating a new one
+			// For PyTorchJob, PATCH the existing object with recommendations and labels
 
 			// Remove watch label from job
 			delete(job.Labels, r.WatchLabelKey)
@@ -452,7 +431,7 @@ func (r *PyTorchJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			// Remove AdmissionGatedBy annotation to ungate Kueue admission
 			delete(job.Annotations, KueueAdmissionGatedByAnnotation)
 
-			// Patch the existing PyTorchJob with recommendations
+			// Patch the existing PyTorchJob with recommendations in a single operation
 			if err := r.Patch(ctx, job, client.MergeFrom(original)); err != nil {
 				log.Error(err, "unable to patch PyTorchJob")
 				return ctrl.Result{}, err
@@ -476,6 +455,12 @@ func (r *PyTorchJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				log.Error(err, "unable to fetch latest PyTorchJob for ungating")
 				return ctrl.Result{}, err
 			}
+
+			// Remove watch label
+			delete(latestOriginal.Labels, r.WatchLabelKey)
+
+			// Add done label
+			latestOriginal.Labels[r.DoneLabelKey] = r.DoneLabelValue
 
 			// Remove AdmissionGatedBy annotation to ungate Kueue admission
 			if latestOriginal.Annotations != nil {

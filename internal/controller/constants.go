@@ -16,11 +16,24 @@ limitations under the License.
 
 package controller
 
+import corev1 "k8s.io/api/core/v1"
+
 const (
+	// AppWrapper uses these conventions
+	PrimaryPyTorchReplica = "Master"
+	WorkerPyTorchReplica  = "Worker"
+
+	GPUResourceRequirement corev1.ResourceName = "nvidia.com/gpu"
+
 	// KueueAdmissionGatedByAnnotation is the annotation key used by Kueue to gate admission of a Job.
 	// While this annotation is present, Kueue will temporarily consider the Job as inadmissible.
 	// When the annotation is removed or contains an empty value, Kueue will resume its normal
 	// admission check phases and the Job will be considered for admission.
 	// This feature is available in Kueue v0.17
 	KueueAdmissionGatedByAnnotation = "kueue.x-k8s.io/admission-gated-by"
+
+	// DefaultAutoconfDoneLabelKey is the default label key used to mark jobs as processed by autoconf
+	DefaultAutoconfDoneLabelKey = "autoconf.ibm.com/autoconf-done"
+	// DefaultAutoconfDoneLabelValue is the default label value for the done label
+	DefaultAutoconfDoneLabelValue = "true"
 )

@@ -103,9 +103,9 @@ func main() {
 		"Limits controller to monitor objects with label @watch-label-key=@watch-label-value")
 	flag.StringVar(&watchLabelValue, "watch-label-value", "resource-requirements-appwrapper",
 		"Limits controller to monitor objects with label @watch-label-key=@watch-label-value")
-	flag.StringVar(&doneLabelKey, "done-label-key", "autoconf-plugin-done",
-		"Controller inserts @done-label-key=@done-label-value label on original object when processing is complete. Not set if key is kueue.x-k8s.io/queue-name")
-	flag.StringVar(&doneLabelValue, "done-label-value", "yes",
+	flag.StringVar(&doneLabelKey, "done-label-key", controller.DefaultAutoconfDoneLabelKey,
+		"Controller inserts @done-label-key=@done-label-value label on original object when processing is complete")
+	flag.StringVar(&doneLabelValue, "done-label-value", controller.DefaultAutoconfDoneLabelValue,
 		"Controller inserts @done-label-key=@done-label-value label on original object when processing is complete")
 	flag.BoolVar(&enableAppWrapper, "enable-appwrapper", false,
 		"If set, plugin will monitor AppWrapper objects and create derived objects with recommendations")

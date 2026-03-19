@@ -7,7 +7,7 @@ metadata:
   name: autoconf-lora-granite-3-8b
   annotations:
     # This annotation gates Kueue admission until the controller removes it
-    kueue.x-k8s.io/admission-gated-by: "autoconf.com/autoconf-plugin"
+    kueue.x-k8s.io/admission-gated-by: "autoconf.ibm/autoconf-plugin"
   labels:
     # Valid LocalQueue name (controller will copy this to derived AppWrapper)
     kueue.x-k8s.io/queue-name: default-queue

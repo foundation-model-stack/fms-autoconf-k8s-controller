@@ -58,8 +58,78 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: test
-test: manifests generate fmt vet setup-envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
+test: manifests generate fmt vet setup-envtest dep-crds ## Run tests.
+	@echo "=========================================="
+	@echo "Running all tests..."
+	@echo "=========================================="
+	@KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" \
+	go test ./... -v -coverprofile cover.out 2>&1; \
+	test_result=$$?; \
+	echo ""; \
+	echo "=========================================="; \
+	echo "Test Summary:"; \
+	echo "=========================================="; \
+	if [ $$test_result -eq 0 ]; then \
+		echo "✓ All tests passed!"; \
+	else \
+		echo "✗ Some tests failed!"; \
+	fi; \
+	echo "=========================================="; \
+	echo ""; \
+	echo "Run 'go test ./... -v' for detailed output"; \
+	echo "Run 'go tool cover -html=cover.out' to view coverage"; \
+
+# LOG_LEVEL controls the verbosity of controller logs during integration tests
+# Valid values: debug, info, error (default: info)
+# Usage: make test-integration LOG_LEVEL=debug
+LOG_LEVEL ?= info
+
+.PHONY: test-integration
+test-integration: manifests generate fmt vet setup-envtest dep-crds ## Run integration tests only. Set LOG_LEVEL=debug for verbose logs.
+	@echo "=========================================="
+	@echo "Running integration tests..."
+	@echo "Log level: $(LOG_LEVEL)"
+	@echo "=========================================="
+	@KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" \
+	LOG_LEVEL=$(LOG_LEVEL) go test ./test/integration/... -v -ginkgo.v 2>&1 | tee /dev/tty; \
+	test_result=$${PIPESTATUS[0]}; \
+	echo ""; \
+	echo "=========================================="; \
+	echo "Integration Test Summary:"; \
+	echo "=========================================="; \
+	if [ $$test_result -eq 0 ]; then \
+		echo "✓ All integration tests passed!"; \
+	else \
+		echo "✗ Some integration tests failed!"; \
+	fi; \
+	echo "=========================================="; \
+	echo ""; \
+	echo "Tip: Use 'make test-integration LOG_LEVEL=debug' for verbose controller logs"; \
+	exit $$test_result
+
+##@ External CRDs
+
+KF_TRAINING_ROOT = $(shell go list -m -mod=readonly -f "{{.Dir}}" github.com/kubeflow/training-operator)
+APPWRAPPER_ROOT = $(shell go list -m -mod=readonly -f "{{.Dir}}" github.com/project-codeflare/appwrapper)
+EXTERNAL_CRDS_DIR ?= $(PWD)/dep-crds
+
+.PHONY: training-operator-crds
+training-operator-crds: ## Copy the PyTorchJob CRD from training-operator to dep-crds directory
+	@echo "Copying PyTorchJob CRD from training-operator..."
+	@mkdir -p $(EXTERNAL_CRDS_DIR)
+	@cp -f $(KF_TRAINING_ROOT)/manifests/base/crds/kubeflow.org_pytorchjobs.yaml $(EXTERNAL_CRDS_DIR)/
+	@echo "CRD copied to $(EXTERNAL_CRDS_DIR)/kubeflow.org_pytorchjobs.yaml"
+
+.PHONY: appwrapper-crds
+appwrapper-crds: ## Copy the AppWrapper CRD from appwrapper to dep-crds directory
+	@echo "Copying AppWrapper CRD from appwrapper..."
+	@mkdir -p $(EXTERNAL_CRDS_DIR)
+	@cp -f $(APPWRAPPER_ROOT)/config/crd/bases/workload.codeflare.dev_appwrappers.yaml $(EXTERNAL_CRDS_DIR)/
+	@echo "CRD copied to $(EXTERNAL_CRDS_DIR)/workload.codeflare.dev_appwrappers.yaml"
+
+.PHONY: dep-crds
+dep-crds: training-operator-crds appwrapper-crds ## Copy all external CRDs needed for integration tests
+	exit $$test_result
 
 # TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.

@@ -153,7 +153,13 @@ func (r *AppWrapperReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		// Remove AdmissionGatedBy annotation from the job that will become the derived object
 		delete(job.Annotations, KueueAdmissionGatedByAnnotation)
 
+		// Update original to remove watch label, add done label, and add recommendation annotation
 		delete(original.Labels, r.WatchLabelKey)
+		original.Labels[r.DoneLabelKey] = r.DoneLabelValue
+		if original.Annotations == nil {
+			original.Annotations = make(map[string]string)
+		}
+		original.Annotations[r.RecommendationAnnotationKey] = rr.RecommendationJSON
 
 		if err := r.Update(ctx, original); err != nil {
 			return handleUpdateWrapperError(err, log)
@@ -201,12 +207,16 @@ func (r *AppWrapperReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				return ctrl.Result{}, err
 			}
 
+			// Remove watch label and add done label
+			delete(latestOriginal.Labels, r.WatchLabelKey)
+			latestOriginal.Labels[r.DoneLabelKey] = r.DoneLabelValue
+
 			// Remove AdmissionGatedBy annotation to ungate Kueue admission
 			if latestOriginal.Annotations != nil {
 				delete(latestOriginal.Annotations, KueueAdmissionGatedByAnnotation)
 			}
 
-			// Add recommendation annotation with error (already set on job at line 151)
+			// Add recommendation annotation with error
 			if latestOriginal.Annotations == nil {
 				latestOriginal.Annotations = make(map[string]string)
 			}
