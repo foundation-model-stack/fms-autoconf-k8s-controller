@@ -37,7 +37,7 @@ COPY --from=builder /workspace/manager /workspace
 
 WORKDIR /workspace
 
-# VV: Use these lines to experiment with custom versionf of autoconf
+# VV: Use these lines to experiment with custom version of autoconf
 # You'll have to git clone ado here first
 # COPY ado /workspace/ado
 # RUN pip install --no-cache-dir ado ado/plugins/custom_experiments/autoconf/
@@ -46,7 +46,7 @@ WORKDIR /workspace
 # script by providing the following CLI argument to manager:
 # --path-wrapper-script=/workspace/wrapper_autoconf.py
 COPY cmd/wrapper_autoconf.py /workspace/wrapper_autoconf.py
-RUN pip install --no-cache-dir ado-autoconf==1.5.0 ipython
+RUN pip install --no-cache-dir ado-autoconf==1.6.0 ipython
 
 USER 65532:65532
 

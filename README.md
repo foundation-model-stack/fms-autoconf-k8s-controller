@@ -82,7 +82,7 @@ You can run the controller as a local process while it manages one or more names
    metadata:
      annotations:
        # Gates Kueue admission until controller removes it
-       kueue.x-k8s.io/admission-gated-by: "autoconf.ibm/ado-min-gpu-recommender"
+       kueue.x-k8s.io/admission-gated-by: "autoconf.ibm.com/autoconf-plugin"
      labels:
        # Valid LocalQueue name
        kueue.x-k8s.io/queue-name: default-queue
