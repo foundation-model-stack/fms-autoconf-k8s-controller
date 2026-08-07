@@ -328,9 +328,9 @@ func TestAppWrapperReconciler_WithDeferredRecommender(t *testing.T) {
 		wantDoneLabel      bool
 	}{
 		"first reconcile - initiate request": {
-			aw:            baseAppWrapper.Clone().Obj(),
-			pendingChecks: 2,
-			mockResult:    nil, // Will be pending
+			aw:                 baseAppWrapper.Clone().Obj(),
+			pendingChecks:      2,
+			mockResult:         nil, // Will be pending
 			wantRequeue:        true,
 			wantRequestIDLabel: true,
 			wantDoneLabel:      false,
