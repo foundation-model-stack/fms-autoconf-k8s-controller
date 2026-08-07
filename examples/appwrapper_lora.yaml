@@ -12,7 +12,7 @@ metadata:
     # Valid LocalQueue name (controller will copy this to derived AppWrapper)
     kueue.x-k8s.io/queue-name: default-queue
     # Label to trigger the autoconf controller
-    autoconf-plugin-name: resource-requirements-appwrapper
+    autoconf-plugin-name: ado-autoconf
 spec:
   components:
     - template:
