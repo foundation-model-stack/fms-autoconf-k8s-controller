@@ -321,31 +321,63 @@ func TestAppWrapperReconciler_WithDeferredRecommender(t *testing.T) {
 
 	tests := map[string]struct {
 		aw                 *awv1beta2.AppWrapper
-		mockInitiateResult string
-		mockInitiateError  error
-		mockCheckResult    *controller.RecommendationResult
-		mockCheckError     error
+		pendingChecks      int
+		mockResult         *controller.RecommendationResult
 		wantRequeue        bool
 		wantRequestIDLabel bool
 		wantDoneLabel      bool
 	}{
 		"first reconcile - initiate request": {
-			aw:                 baseAppWrapper.Clone().Obj(),
-			mockInitiateResult: "request-123",
-			mockInitiateError:  nil,
+			aw:            baseAppWrapper.Clone().Obj(),
+			pendingChecks: 2,
+			mockResult:    nil, // Will be pending
 			wantRequeue:        true,
 			wantRequestIDLabel: true,
 			wantDoneLabel:      false,
 		},
 		"second reconcile - still pending": {
 			aw: baseAppWrapper.Clone().
-				Label(requestIDLabel, "request-123").
+				Label(requestIDLabel, "mock-request-1").
 				Obj(),
-			mockCheckResult:    nil, // nil means still pending
-			mockCheckError:     nil,
+			pendingChecks:      2,
+			mockResult:         nil, // Still pending
 			wantRequeue:        true,
 			wantRequestIDLabel: true,
 			wantDoneLabel:      false,
+		},
+		"third reconcile - result ready": {
+			aw: baseAppWrapper.Clone().
+				Label(requestIDLabel, "mock-request-1").
+				Obj(),
+			pendingChecks: 0, // Result is ready immediately (simulating 3rd check after 2 pending)
+			mockResult: &controller.RecommendationResult{
+				Requirements: &controller.ResourceRequirements{
+					Workers:      2,
+					GPUs:         1,
+					CanRecommend: true,
+				},
+				CanRecommend: true,
+			},
+			wantRequeue:        false,
+			wantRequestIDLabel: true,
+			wantDoneLabel:      true,
+		},
+		"second reconcile - result ready on 2nd check": {
+			aw: baseAppWrapper.Clone().
+				Label(requestIDLabel, "mock-request-1").
+				Obj(),
+			pendingChecks: 1, // 1 pending check, then ready
+			mockResult: &controller.RecommendationResult{
+				Requirements: &controller.ResourceRequirements{
+					Workers:      3,
+					GPUs:         2,
+					CanRecommend: true,
+				},
+				CanRecommend: true,
+			},
+			wantRequeue:        false,
+			wantRequestIDLabel: true,
+			wantDoneLabel:      true,
 		},
 	}
 
@@ -359,17 +391,9 @@ func TestAppWrapperReconciler_WithDeferredRecommender(t *testing.T) {
 
 			// Create mock recommender
 			mockRecommender := testutilpkg.NewMockDeferredRecommender()
-			if tc.mockInitiateError != nil {
-				mockRecommender.SetInitiateError(tc.mockInitiateError)
-			}
-			if tc.mockCheckResult != nil {
-				mockRecommender.SetResult(tc.mockCheckResult)
-			} else {
-				// For pending state, set PendingChecks to simulate async behavior
-				mockRecommender.SetPendingChecks(1)
-			}
-			if tc.mockCheckError != nil {
-				mockRecommender.SetCheckError(tc.mockCheckError)
+			mockRecommender.SetPendingChecks(tc.pendingChecks)
+			if tc.mockResult != nil {
+				mockRecommender.SetResult(tc.mockResult)
 			}
 
 			// Create reconciler

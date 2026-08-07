@@ -166,7 +166,7 @@ func (m *MockDeferredRecommender) CheckRecommendation(ctx context.Context, reque
 	m.checkCounts[requestID]++
 
 	// Simulate pending state
-	if m.checkCounts[requestID] <= m.PendingChecks {
+	if m.checkCounts[requestID] < m.PendingChecks {
 		return nil, nil
 	}
 
