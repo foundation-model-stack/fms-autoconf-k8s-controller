@@ -5,10 +5,20 @@ apiVersion: "kubeflow.org/v1"
 kind: "PyTorchJob"
 metadata:
   name: simple
+  # If you're using Kueue, uncomment `annotations` block
+  #annotations:
+  # kueue.x-k8s.io/admission-gated-by: "autoconf.ibm.com/autoconf-plugin"
   labels:
-    kueue.x-k8s.io/queue-name: fake
-    autoconf-plugin-name: resource-requirements-appwrapper
+    workload: demo
+    # If you're using Kueue, enter the LocalQueue name below
+    # kueue.x-k8s.io/queue-name: default-queue
+    # Uncomment the line below to use the recommender
+    autoconf-plugin-name: ado-autoconf
 spec:
+  # Create the Job in a suspended state so that Trainer does not create a Pod
+  # before the recommender is done patching its resources
+  runPolicy:
+    suspend: true
   pytorchReplicaSpecs:
     Master:
       replicas: 1
@@ -16,16 +26,15 @@ spec:
       template:
         spec:
           nodeSelector:
-            nvidia.com/gpu.product: NVIDIA-A100-80GB-PCIe
+            # The controller uses this to extract the GPU model type
+            nvidia.com/gpu.product: NVIDIA-A100-SXM4-80GB
           volumes:
             - name: dshm
               emptyDir:
                 medium: Memory
-          securityContext:
-            allowPrivilegeEscalation: false
           containers:
             - name: pytorch
-              image: quay.io/ado/ado:1.5.0-sft-py312-cu121-ofed2410v1140
+              image: quay.io/ado/ado:2.1.0-ofed-py312-cu129-ofed2410v1140
               imagePullPolicy: IfNotPresent
               securityContext:
                 allowPrivilegeEscalation: false
@@ -37,32 +46,39 @@ spec:
                 - name: dshm
                   mountPath: "/dev/shm"
               resources:
+                # The controller updates the requests/limits for nvidia.com/gpu
                 requests:
                   memory: 80Gi
-                  nvidia.com/gpu: 8
+                  nvidia.com/gpu: 1
                 limits:
                   memory: 80Gi
-                  nvidia.com/gpu: 8
+                  nvidia.com/gpu: 1
               workingDir: /tmp/
               command:
                 - sh
                 - -c
                 - |
+                  # Create a venv, and install the wrapper to SFTTrainer (fms-hf-tuning) we use as well as a python package we use
+                  # to benchmark fms-hf-tuning which contains a utility for generating a synthetic training dataset
                   python -m venv .venv
                   . .venv/bin/activate
                   pip install fms-hf-tuning ado-core ado-sfttrainer
                   pip install --no-build-isolation fms-hf-tuning[flash-attn]
-                  sfttrainer_generate_dataset_text -o /tmp/artificial-dataset/news-tokens-16384plus-entries-4096.jsonl
+                  sfttrainer_generate_dataset_text -o /tmp/artificial-dataset-with-more-than-20k-tokens.jsonl
+
+                  # This is the finetuning job, for full-finetuning ibm-granite/granite-3.1-3b-a800m-instruct with 
+                  # a per_device_train_batch_size of 16, gradient_accumulation_steps 4 and a 
+                  # max sequence length of 8192 tokens, using 1 process (i.e. 1 GPU)
+                  
                   accelerate launch --use_fsdp --fsdp_auto_wrap_policy=TRANSFORMER_BASED_WRAP --fsdp_forward_prefetch=false \
                   --fsdp_offload_params=false --fsdp_sharding_strategy=HYBRID_SHARD --fsdp_state_dict_type=FULL_STATE_DICT \
                   --fsdp_cpu_ram_efficient_loading=true --fsdp_sync_module_states=true --dynamo_backend="no" --machine_rank="${RANK}" \
                   --main_process_ip="${MASTER_ADDR}" --main_process_port="${MASTER_PORT}" --mixed_precision="no" \
-                  --num_machines="1" --num_processes="8" --rdzv_backend="static" --same_network \
+                  --num_machines="1" --num_processes="1" --rdzv_backend="static" --same_network \
                   -m tuning.sft_trainer --log_level info --eval_strategy no --save_strategy no \
-                  --learning_rate 1e-05 --weight_decay 0.0 --warmup_ratio 0.03 --lr_scheduler_type cosine \
                   --logging_steps 1 --include_tokens_per_second True --packing False --response_template "\n### Response:" \
                   --dataset_text_field output --gradient_accumulation_steps 4 --gradient_checkpointing True --max_steps 5 \
                   --model_name_or_path "ibm-granite/granite-3.1-3b-a800m-instruct" \
-                  --per_device_train_batch_size 1 --torch_dtype bfloat16 --max_seq_length 512 \
-                  --training_data_path /tmp/artificial-dataset/news-tokens-16384plus-entries-4096.jsonl \
+                  --per_device_train_batch_size 16 --torch_dtype bfloat16 --max_seq_length 8192 \
+                  --training_data_path /tmp/artificial-dataset-with-more-than-20k-tokens.jsonl \
                   --output_dir /tmp/output/

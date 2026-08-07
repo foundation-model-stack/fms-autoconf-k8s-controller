@@ -1,5 +1,18 @@
-// Copyright (c) IBM Corporation
-// SPDX-License-Identifier: MIT
+/*
+Copyright 2025.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
 
 package controller
 
@@ -711,7 +724,7 @@ func ConvertCommandlineOptionsToAutoConfFields(config map[string]string, env []v
 
 // extractGPUModelFromNodeSelector checks if nodeSelector has the key "nvidia.com/gpu.product"
 // and returns its value. Returns empty string if not found.
-func extractGPUModelFromNodeSelector(nodeSelector map[string]string) string {
+func ExtractGPUModelFromNodeSelector(nodeSelector map[string]string) string {
 	if nodeSelector == nil {
 		return ""
 	}
@@ -727,7 +740,7 @@ func extractGPUModelFromNodeSelector(nodeSelector map[string]string) string {
 // exactly one value for the label "nvidia.com/gpu.product".
 // Only checks requiredDuringSchedulingIgnoredDuringExecution rules with operator In.
 // Returns empty string if not found or if multiple values are specified.
-func extractGPUModelFromNodeAffinity(nodeAffinity *v1.NodeAffinity) string {
+func ExtractGPUModelFromNodeAffinity(nodeAffinity *v1.NodeAffinity) string {
 	if nodeAffinity == nil {
 		return ""
 	}
@@ -757,7 +770,7 @@ func extractGPUModelFromNodeAffinity(nodeAffinity *v1.NodeAffinity) string {
 // 2. nodeSelector with key "nvidia.com/gpu.product"
 // 3. nodeAffinity with exactly 1 value for "nvidia.com/gpu.product"
 // Returns the GPU model string, or empty string if not found.
-func extractGPUModelFromPodSpec(podSpec *v1.PodSpec) string {
+func ExtractGPUModelFromPodSpec(podSpec *v1.PodSpec) string {
 	// Check environment variables first
 	for _, env := range podSpec.Containers[0].Env {
 		if env.Name == "AUTOCONF_GPU_MODEL" && env.Value != "" {
@@ -766,13 +779,13 @@ func extractGPUModelFromPodSpec(podSpec *v1.PodSpec) string {
 	}
 
 	// Try nodeSelector
-	if gpuModel := extractGPUModelFromNodeSelector(podSpec.NodeSelector); gpuModel != "" {
+	if gpuModel := ExtractGPUModelFromNodeSelector(podSpec.NodeSelector); gpuModel != "" {
 		return gpuModel
 	}
 
 	// Try nodeAffinity
 	if podSpec.Affinity != nil {
-		if gpuModel := extractGPUModelFromNodeAffinity(podSpec.Affinity.NodeAffinity); gpuModel != "" {
+		if gpuModel := ExtractGPUModelFromNodeAffinity(podSpec.Affinity.NodeAffinity); gpuModel != "" {
 			return gpuModel
 		}
 	}
@@ -831,7 +844,7 @@ func ExtractMinGPURecommenderInput(job *kubeflowv1.PyTorchJob, defaultGPUModel, 
 	// VV: If AUTOCONF_GPU_MODEL override is missing, extract value from podSpec
 	if _, exists := config["AUTOCONF_GPU_MODEL"]; !exists {
 		podSpec := &primary.Template.Spec
-		gpuModel := extractGPUModelFromPodSpec(podSpec)
+		gpuModel := ExtractGPUModelFromPodSpec(podSpec)
 
 		if gpuModel == "" && defaultGPUModel != "" {
 			gpuModel = defaultGPUModel

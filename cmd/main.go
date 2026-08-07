@@ -43,7 +43,7 @@ import (
 	kubeflowv1 "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 
-	"github.com/ibm/resource-requirements-appwrapper/internal/controller"
+	"github.com/foundation-model-stack/fms-autoconf-k8s-controller/internal/controller"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -101,11 +101,11 @@ func main() {
 		"will monitor. Separate multiple namespaces with a comma.")
 	flag.StringVar(&watchLabelKey, "watch-label-key", "autoconf-plugin-name",
 		"Limits controller to monitor objects with label @watch-label-key=@watch-label-value")
-	flag.StringVar(&watchLabelValue, "watch-label-value", "resource-requirements-appwrapper",
+	flag.StringVar(&watchLabelValue, "watch-label-value", "ado-autoconf",
 		"Limits controller to monitor objects with label @watch-label-key=@watch-label-value")
-	flag.StringVar(&doneLabelKey, "done-label-key", "autoconf-plugin-done",
-		"Controller inserts @done-label-key=@done-label-value label on original object when processing is complete. Not set if key is kueue.x-k8s.io/queue-name")
-	flag.StringVar(&doneLabelValue, "done-label-value", "yes",
+	flag.StringVar(&doneLabelKey, "done-label-key", controller.DefaultAutoconfDoneLabelKey,
+		"Controller inserts @done-label-key=@done-label-value label on original object when processing is complete")
+	flag.StringVar(&doneLabelValue, "done-label-value", controller.DefaultAutoconfDoneLabelValue,
 		"Controller inserts @done-label-key=@done-label-value label on original object when processing is complete")
 	flag.BoolVar(&enableAppWrapper, "enable-appwrapper", false,
 		"If set, plugin will monitor AppWrapper objects and create derived objects with recommendations")
@@ -272,18 +272,30 @@ func main() {
 
 	urlAdo = strings.TrimSuffix(urlAdo, "/")
 
+	// Instantiate the appropriate recommender based on configuration
+	var immediateRecommender controller.ImmediateRecommender
+	var deferredRecommender controller.DeferredRecommender
+
+	if pathWrapperScript != "" {
+		immediateRecommender = controller.NewPythonScriptRecommender(pathWrapperScript)
+		setupLog.Info("Using ImmediateRecommender with Python script", "path", pathWrapperScript)
+	} else if urlAdo != "" {
+		deferredRecommender = controller.NewRestAPIRecommender(urlAdo)
+		setupLog.Info("Using DeferredRecommender with REST API", "url", urlAdo)
+	}
+
 	pi := controller.PatchingInstructions{
 		DoneLabelKey:                doneLabelKey,
 		DoneLabelValue:              doneLabelValue,
 		WatchLabelKey:               watchLabelKey,
 		UnsuspendDerivedJobs:        unsuspendDerivedJobs,
-		PathWrapperScript:           pathWrapperScript,
-		UrlAdo:                      urlAdo,
 		WaitingForAdoRequestIDLabel: waitingForAdoRequestIDLabel,
 		PatchCPURequest:             patchCPURequest,
 		DefaultGPUModel:             defaultGPUModel,
 		AutoconfModelVersion:        defaultAutoconfModelVersion,
 		RecommendationAnnotationKey: recommendationAnnotationKey,
+		ImmediateRecommender:        immediateRecommender,
+		DeferredRecommender:         deferredRecommender,
 	}
 
 	if enableAppWrapper {
@@ -301,7 +313,7 @@ func main() {
 		if err := (&controller.PyTorchJobReconciler{
 			Client:               mgr.GetClient(),
 			Scheme:               mgr.GetScheme(),
-			PatchingInstructions: pi.Copy(),
+			PatchingInstructions: pi,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "PyTorchJob")
 			os.Exit(1)

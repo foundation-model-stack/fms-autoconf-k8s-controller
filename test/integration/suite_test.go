@@ -1,0 +1,204 @@
+/*
+Copyright 2025.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package integration
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	"go.uber.org/zap/zapcore"
+
+	kubeflowv1 "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
+	appwrapperv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
+	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+
+	"github.com/foundation-model-stack/fms-autoconf-k8s-controller/internal/controller"
+	testutilpkg "github.com/foundation-model-stack/fms-autoconf-k8s-controller/test/testutil"
+	// +kubebuilder:scaffold:imports
+)
+
+var (
+	ctx       context.Context
+	cancel    context.CancelFunc
+	testEnv   *envtest.Environment
+	cfg       *rest.Config
+	k8sClient client.Client
+	mgr       manager.Manager
+
+	// Shared mock recommender for integration tests
+	mockRecommender *testutilpkg.MockDeferredRecommender
+)
+
+const (
+	watchLabelKey     = "test.ibm.com/watch"
+	watchLabelValue   = "enabled"
+	requestIDLabel    = "test.ibm.com/request-id"
+	recommendationKey = "test.ibm.com/recommendation"
+)
+
+func TestControllers(t *testing.T) {
+	RegisterFailHandler(Fail)
+
+	RunSpecs(t, "Controller Integration Suite")
+}
+
+var _ = BeforeSuite(func() {
+	// Configure logger based on LOG_LEVEL environment variable
+	// Valid values: debug, info, error (default: info)
+	logLevel := os.Getenv("LOG_LEVEL")
+	var zapOpts []zap.Opts
+
+	switch logLevel {
+	case "debug":
+		// Debug level: show all logs including debug (zapcore.DebugLevel = -1)
+		zapOpts = []zap.Opts{
+			zap.WriteTo(GinkgoWriter),
+			zap.UseDevMode(true),
+			zap.Level(zapcore.DebugLevel),
+		}
+	case "error":
+		// Error level: only show errors and above (zapcore.ErrorLevel = 2)
+		zapOpts = []zap.Opts{
+			zap.WriteTo(GinkgoWriter),
+			zap.UseDevMode(true),
+			zap.Level(zapcore.ErrorLevel),
+		}
+	default: // "info" or empty
+		// Info level: show info and above (zapcore.InfoLevel = 0)
+		zapOpts = []zap.Opts{
+			zap.WriteTo(GinkgoWriter),
+			zap.UseDevMode(true),
+			zap.Level(zapcore.InfoLevel),
+		}
+	}
+
+	logf.SetLogger(zap.New(zapOpts...))
+
+	ctx, cancel = context.WithCancel(context.TODO())
+
+	var err error
+
+	// Add kubeflow scheme
+	err = kubeflowv1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	// Add appwrapper scheme
+	err = appwrapperv1beta2.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	// +kubebuilder:scaffold:scheme
+
+	By("bootstrapping test environment")
+	testEnv = &envtest.Environment{
+		CRDDirectoryPaths: []string{
+			filepath.Join("..", "..", "config", "crd", "bases"),
+			filepath.Join("..", "..", "dep-crds"),
+		},
+		ErrorIfCRDPathMissing: false,
+	}
+
+	// Retrieve the first found binary directory to allow running tests from IDEs
+	if getFirstFoundEnvTestBinaryDir() != "" {
+		testEnv.BinaryAssetsDirectory = getFirstFoundEnvTestBinaryDir()
+	}
+
+	// cfg is defined in this file globally.
+	cfg, err = testEnv.Start()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(cfg).NotTo(BeNil())
+
+	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(k8sClient).NotTo(BeNil())
+
+	By("creating manager")
+	mgr, err = ctrl.NewManager(cfg, ctrl.Options{
+		Scheme: scheme.Scheme,
+	})
+	Expect(err).NotTo(HaveOccurred())
+
+	By("setting up mock recommender")
+	mockRecommender = testutilpkg.NewMockDeferredRecommender()
+
+	By("setting up PyTorchJob controller with mock recommender")
+	pytorchJobReconciler := &controller.PyTorchJobReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+		PatchingInstructions: controller.PatchingInstructions{
+			DoneLabelKey:                controller.DefaultAutoconfDoneLabelKey,
+			DoneLabelValue:              controller.DefaultAutoconfDoneLabelValue,
+			WatchLabelKey:               watchLabelKey,
+			UnsuspendDerivedJobs:        false,
+			WaitingForAdoRequestIDLabel: requestIDLabel,
+			PatchCPURequest:             true,
+			DefaultGPUModel:             "NVIDIA-A100-SXM4-80GB",
+			AutoconfModelVersion:        "3.1.0",
+			RecommendationAnnotationKey: recommendationKey,
+			DeferredRecommender:         mockRecommender,
+		},
+	}
+	err = pytorchJobReconciler.SetupWithManager(mgr)
+	Expect(err).NotTo(HaveOccurred())
+
+	By("starting manager")
+	go func() {
+		defer GinkgoRecover()
+		err = mgr.Start(ctx)
+		Expect(err).NotTo(HaveOccurred(), "failed to run manager")
+	}()
+})
+
+var _ = AfterSuite(func() {
+	By("tearing down the test environment")
+	cancel()
+	err := testEnv.Stop()
+	Expect(err).NotTo(HaveOccurred())
+})
+
+// getFirstFoundEnvTestBinaryDir locates the first binary in the specified path.
+// ENVTEST-based tests depend on specific binaries, usually located in paths set by
+// controller-runtime. When running tests directly (e.g., via an IDE) without using
+// Makefile targets, the 'BinaryAssetsDirectory' must be explicitly configured.
+//
+// This function streamlines the process by finding the required binaries, similar to
+// setting the 'KUBEBUILDER_ASSETS' environment variable. To ensure the binaries are
+// properly set up, run 'make setup-envtest' beforehand.
+func getFirstFoundEnvTestBinaryDir() string {
+	basePath := filepath.Join("..", "..", "bin", "k8s")
+	entries, err := os.ReadDir(basePath)
+	if err != nil {
+		logf.Log.Error(err, "Failed to read directory", "path", basePath)
+		return ""
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			return filepath.Join(basePath, entry.Name())
+		}
+	}
+	return ""
+}

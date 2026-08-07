@@ -29,6 +29,8 @@ configuration = {
     "tokens_per_sample": tokens_per_sample,
     "batch_size": batch_size,
     "model_version": model_version,
+    "gpus_per_worker": 8,
+    "max_gpus": 128,
 }
 
 try:

@@ -28,7 +28,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	v1api "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
@@ -40,14 +39,6 @@ import (
 	"github.com/go-logr/logr"
 	kubeflowv1 "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 )
-
-// VV: this is an assumption in AppWrapper
-const (
-	PrimaryPyTorchReplica kubeflowv1.ReplicaType = "Master"
-	WorkerPyTorchReplica  kubeflowv1.ReplicaType = "Worker"
-)
-
-const GPUResourceRequirement corev1.ResourceName = "nvidia.com/gpu"
 
 type RecommenderRequest struct {
 	Pending               bool
@@ -61,29 +52,15 @@ type PatchingInstructions struct {
 	DoneLabelValue              string
 	WatchLabelKey               string
 	UnsuspendDerivedJobs        bool
-	PathWrapperScript           string
-	UrlAdo                      string
 	WaitingForAdoRequestIDLabel string
 	PatchCPURequest             bool
 	DefaultGPUModel             string
 	AutoconfModelVersion        string
 	RecommendationAnnotationKey string
-}
 
-func (p *PatchingInstructions) Copy() PatchingInstructions {
-	return PatchingInstructions{
-		DoneLabelKey:                p.DoneLabelKey,
-		DoneLabelValue:              p.DoneLabelValue,
-		WatchLabelKey:               p.WatchLabelKey,
-		UnsuspendDerivedJobs:        p.UnsuspendDerivedJobs,
-		PathWrapperScript:           p.PathWrapperScript,
-		UrlAdo:                      p.UrlAdo,
-		WaitingForAdoRequestIDLabel: p.WaitingForAdoRequestIDLabel,
-		PatchCPURequest:             p.PatchCPURequest,
-		DefaultGPUModel:             p.DefaultGPUModel,
-		AutoconfModelVersion:        p.AutoconfModelVersion,
-		RecommendationAnnotationKey: p.RecommendationAnnotationKey,
-	}
+	// Recommender interfaces - exactly one will be set
+	ImmediateRecommender ImmediateRecommender
+	DeferredRecommender  DeferredRecommender
 }
 
 // PyTorchJobReconciler reconciles a PyTorchJob object
@@ -271,60 +248,64 @@ func (r *PatchingInstructions) UpdatePyTorchJob(job *kubeflowv1.PyTorchJob, requ
 
 	if err != nil {
 		return RecommenderRequest{RequestID: requestID, Pending: false}, nil, errors.Join(fmt.Errorf("cannot extract minimum resource requirements for PyTorch job %s", job.Name), err)
-	} else {
-		log.V(1).Info("Requesting recommendation from recommender", "features", minGPURecommenderInput)
 	}
 
-	var recs *ResourceRequirements = nil
+	log.V(1).Info("Requesting recommendation from recommender", "features", minGPURecommenderInput)
 
-	if r.UrlAdo != "" {
-		// VV: When using an ADO REST API to compute the resource requirements we update a PyTorchJob object in 2 steps:
-		// 1. trigger the min_gpu_recommender custom_experiment to compute the resource requirements and receive a requestID
-		// 2. poll the status of the requestID and when it's done read it to get the recommended resource requirements
+	// Use the recommender interface to get recommendations
+	var result *RecommendationResult
+	var newRequestID string
+	var isPending bool
+
+	ctx := context.Background()
+
+	if r.ImmediateRecommender != nil {
+		// Immediate path - get result right away
+		result, err = r.ImmediateRecommender.GetRecommendation(ctx, minGPURecommenderInput)
+		isPending = false
+		newRequestID = ""
+
+	} else if r.DeferredRecommender != nil {
+		// Deferred path - initiate or check
 		if requestID == "" {
-			// VV: haven't triggered the custom_experiment yet
-			requestID, err = SendRequestToCalcMinimumResourceRequirements(minGPURecommenderInput, r.UrlAdo, log)
-			return RecommenderRequest{RequestID: requestID, Pending: true}, nil, err
+			// First call - initiate
+			newRequestID, err = r.DeferredRecommender.InitiateRecommendation(ctx, minGPURecommenderInput)
+			isPending = true
+			result = nil
 		} else {
-			// VV: check whether the custom_experiment has finished producing the recommended resource requirements
-			recs, err = CheckRequestToCalcMinimumResourceRequirements(minGPURecommenderInput, r.UrlAdo, requestID, log)
-
-			if err != nil {
-				return RecommenderRequest{RequestID: requestID, Pending: true}, nil, errors.Join(fmt.Errorf("failed to check request %s for PyTorch job %s", requestID, job.Name), err)
-			}
+			// Subsequent call - check status
+			result, err = r.DeferredRecommender.CheckRecommendation(ctx, requestID, minGPURecommenderInput)
+			newRequestID = requestID
+			isPending = (result == nil && err == nil)
 		}
-	} else if r.PathWrapperScript != "" {
-		rr := ResourceRequirements{}
-		rr, err = RunPythonWrapperToCalcMinimumResourceRequirements(minGPURecommenderInput, r.PathWrapperScript, log)
-
-		if err == nil {
-			recs = &rr
-		}
-
-		if err != nil {
-			return RecommenderRequest{RequestID: requestID, Pending: false}, nil, errors.Join(fmt.Errorf("cannot compute resource requirements for PyTorch job %s", job.Name), err)
-		}
+	} else {
+		return RecommenderRequest{RequestID: requestID, Pending: false}, nil, fmt.Errorf("no recommender configured")
 	}
 
-	if recs == nil {
+	if err != nil {
+		return RecommenderRequest{RequestID: newRequestID, Pending: isPending}, nil, err
+	}
+
+	if isPending {
 		// VV: The recommender is still working on it, try again later
-		return RecommenderRequest{RequestID: requestID, Pending: true}, nil, nil
+		return RecommenderRequest{RequestID: newRequestID, Pending: true}, nil, nil
 	}
 
 	// Check if recommendation was possible
-	if !recs.CanRecommend {
+	if !result.CanRecommend {
 		// Cannot recommend - create error JSON, do NOT patch the job
 		errorJSON, _ := json.Marshal(map[string]interface{}{
 			"error": "No recommendation",
 		})
 		return RecommenderRequest{
-			RequestID:             requestID,
+			RequestID:             newRequestID,
 			Pending:               false,
 			AppliedRecommendation: false,
 			RecommendationJSON:    string(errorJSON),
 		}, nil, nil
 	}
 
+	recs := result.Requirements
 	log.Info("computed resource requirements", "recs", recs)
 
 	// VV: the "Master" PyTorchReplica always has 1 Replica, the remaining ones go to the recsWorkers
@@ -431,67 +412,77 @@ func (r *PyTorchJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	if rr.RecommendationJSON != "" {
 		// VV: We got an answer from the recommender (either recommendation or error)
-		// Never look at either of these objects again
-		delete(original.Labels, r.WatchLabelKey)
-		// VV: Don't delete the label r.WaitingForAdoRequestIDLabel - users may want to check that request ID
-
-		if r.DoneLabelKey != "kueue.x-k8s.io/queue-name" {
-			// VV: The vpytorchjobs.kb.io webhook forbids mutating the Kueue label name
-			original.Labels[r.DoneLabelKey] = r.DoneLabelValue
-		}
-		delete(job.Labels, r.WatchLabelKey)
-
-		if err := r.Update(ctx, original); err != nil {
-			return handleUpdateWrapperError(err, log)
-		}
-
-		// VV: Label and annotate the derived job
-		job.Labels[r.DoneLabelKey] = r.DoneLabelValue
-
-		if job.Annotations == nil {
-			job.Annotations = make(map[string]string)
-		}
-		job.Annotations[r.RecommendationAnnotationKey] = rr.RecommendationJSON
 
 		if rr.AppliedRecommendation {
-			// VV: The vpytorchjobs.kb.io webhook forbids updating the kueue label so for integration with Kueue
-			// We'll create a new object, just like we do with AppWrapper
+			// For PyTorchJob, PATCH the existing object with recommendations and labels
 
-			job.GenerateName = strings.TrimSuffix(original.Name, "-") + "-"
-			job.Name = ""
-			job.ResourceVersion = ""
+			// Remove watch label from job
+			delete(job.Labels, r.WatchLabelKey)
 
-			job.OwnerReferences = []v1api.OwnerReference{
-				{
-					APIVersion: original.APIVersion,
-					Kind:       original.Kind,
-					Name:       original.Name,
-					UID:        original.UID,
-				},
+			// Add done label to job
+			job.Labels[r.DoneLabelKey] = r.DoneLabelValue
+
+			// Add recommendation annotation
+			if job.Annotations == nil {
+				job.Annotations = make(map[string]string)
 			}
+			job.Annotations[r.RecommendationAnnotationKey] = rr.RecommendationJSON
 
-			if err := r.Create(ctx, job); err != nil {
-				log.Error(err, "unable to create a new PyTorchJob")
+			// Remove AdmissionGatedBy annotation to ungate Kueue admission
+			delete(job.Annotations, KueueAdmissionGatedByAnnotation)
+
+			// Patch the existing PyTorchJob with recommendations
+			if err := r.Patch(ctx, job, client.MergeFrom(original)); err != nil {
+				log.Error(err, "unable to patch PyTorchJob")
 				return ctrl.Result{}, err
 			}
 
-			log.Info("Created new PyTorchJob with recommendations", "name", job.Name)
+			log.Info("Patched PyTorchJob with recommendations", "name", job.Name)
 
 			r.Recorder.Event(
-				original,
+				job,
 				corev1.EventTypeNormal,
 				"PatchedWithRecommendations",
-				"Created new PyTorchJob with recommended resource requirements",
+				"Patched PyTorchJob with recommended resource requirements and removed admission gate",
 			)
 		} else {
-			// No recommendation - mark original as done without creating new one
-			log.Info("PyTorchJob marked as processed - no recommendation available")
+			// No recommendation - ungate the original object so it can proceed
+			log.Info("PyTorchJob marked as processed - no recommendation available, ungating for admission")
+
+			// Fetch the latest version of the original to ungate it
+			latestOriginal := &kubeflowv1.PyTorchJob{}
+			if err := r.Get(ctx, client.ObjectKeyFromObject(original), latestOriginal); err != nil {
+				log.Error(err, "unable to fetch latest PyTorchJob for ungating")
+				return ctrl.Result{}, err
+			}
+
+			// Remove watch label
+			delete(latestOriginal.Labels, r.WatchLabelKey)
+
+			// Add done label
+			latestOriginal.Labels[r.DoneLabelKey] = r.DoneLabelValue
+
+			// Remove AdmissionGatedBy annotation to ungate Kueue admission
+			if latestOriginal.Annotations != nil {
+				delete(latestOriginal.Annotations, KueueAdmissionGatedByAnnotation)
+			}
+
+			// Add recommendation annotation with error
+			if latestOriginal.Annotations == nil {
+				latestOriginal.Annotations = make(map[string]string)
+			}
+			latestOriginal.Annotations[r.RecommendationAnnotationKey] = rr.RecommendationJSON
+
+			if err := r.Update(ctx, latestOriginal); err != nil {
+				log.Error(err, "unable to ungate PyTorchJob")
+				return ctrl.Result{}, err
+			}
 
 			r.Recorder.Event(
-				original,
+				latestOriginal,
 				corev1.EventTypeWarning,
 				"NoRecommendationAvailable",
-				"Recommendation engine could not generate recommendations; PyTorchJob proceeding without modifications",
+				"Recommendation engine could not generate recommendations; PyTorchJob ungated to proceed without modifications",
 			)
 		}
 

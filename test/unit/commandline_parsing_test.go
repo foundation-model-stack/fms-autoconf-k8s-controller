@@ -1,13 +1,27 @@
-// Copyright (c) IBM Corporation
-// SPDX-License-Identifier: MIT
+/*
+Copyright 2025.
 
-package controller
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package unit
 
 import (
 	"context"
 	"reflect"
 	"testing"
 
+	"github.com/foundation-model-stack/fms-autoconf-k8s-controller/internal/controller"
 	"github.com/go-logr/logr"
 	kubeflowv1 "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	v1 "k8s.io/api/core/v1"
@@ -37,7 +51,7 @@ some other command here`
 	job := kubeflowv1.PyTorchJob{
 		Spec: kubeflowv1.PyTorchJobSpec{
 			PyTorchReplicaSpecs: map[kubeflowv1.ReplicaType]*kubeflowv1.ReplicaSpec{
-				PrimaryPyTorchReplica: &kubeflowv1.ReplicaSpec{
+				controller.PrimaryPyTorchReplica: &kubeflowv1.ReplicaSpec{
 					Template: v1.PodTemplateSpec{
 						Spec: v1.PodSpec{
 							Containers: []v1.Container{
@@ -55,7 +69,7 @@ some other command here`
 		},
 	}
 
-	config, err := ExtractPartialInformationFromCommandlineAndEnvVars(&job)
+	config, err := controller.ExtractPartialInformationFromCommandlineAndEnvVars(&job)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -97,7 +111,7 @@ some other command here`
 	return kubeflowv1.PyTorchJob{
 		Spec: kubeflowv1.PyTorchJobSpec{
 			PyTorchReplicaSpecs: map[kubeflowv1.ReplicaType]*kubeflowv1.ReplicaSpec{
-				PrimaryPyTorchReplica: &kubeflowv1.ReplicaSpec{
+				controller.PrimaryPyTorchReplica: &kubeflowv1.ReplicaSpec{
 					Template: v1.PodTemplateSpec{
 						Spec: v1.PodSpec{
 							Containers: []v1.Container{
@@ -130,7 +144,7 @@ some other command here`
 func TestExtractPartialInformationFromCommandlineWithEnvVars(t *testing.T) {
 	job := pyTorchJobWithCommandLineWithEnvVars()
 
-	config, err := ExtractPartialInformationFromCommandlineAndEnvVars(&job)
+	config, err := controller.ExtractPartialInformationFromCommandlineAndEnvVars(&job)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -152,13 +166,13 @@ func TestExtractMinGPURecommenderInputNoEnvVars(t *testing.T) {
 	job := pyTorchJobWithCommandLineWithEnvVars()
 	log, _ := logr.FromContext(context.TODO())
 
-	minGpuRecommenderInput, err := ExtractMinGPURecommenderInput(&job, "NVIDIA-A100-SXM4-80GB", "3.1.0", log)
+	minGpuRecommenderInput, err := controller.ExtractMinGPURecommenderInput(&job, "NVIDIA-A100-SXM4-80GB", "3.1.0", log)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	expected := MinGPURecommenderInput{
+	expected := controller.MinGPURecommenderInput{
 		ModelName:       "granite-8b-code-base",
 		Method:          "lora",
 		GPUModel:        "NVIDIA-A100-SXM4-80GB",
