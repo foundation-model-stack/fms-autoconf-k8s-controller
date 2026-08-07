@@ -28,8 +28,8 @@ import (
 
 	kubeflowv1 "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 
-	"github.com/ibm/resource-requirements-appwrapper/internal/controller"
-	"github.com/ibm/resource-requirements-appwrapper/test/utils"
+	"github.com/foundation-model-stack/fms-autoconf-k8s-controller/internal/controller"
+	"github.com/foundation-model-stack/fms-autoconf-k8s-controller/test/utils"
 )
 
 func makeDefaultJob(name, namespace string) *kubeflowv1.PyTorchJob {

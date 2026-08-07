@@ -3,19 +3,19 @@
 # and allow the plugins properly work.
 # More info: https://book.kubebuilder.io/reference/project-config.html
 cliVersion: 4.9.0
-domain: codeflare.dev
+domain: ibm.com
 layout:
 - go.kubebuilder.io/v4
-projectName: resource-requirements-appwrapper
-repo: github.com/ibm/resource-requirements-appwrapper
+projectName: fms-autoconf-k8s-controller
+repo: github.com/foundation-model-stack/fms-autoconf-k8s-controller
 resources:
 - controller: true
-  domain: codeflare.dev
+  domain: ibm.com
   group: workload
   kind: AppWrapper
   version: v1beta2
 - controller: true
-  domain: codeflare.dev
+  domain: ibm.com
   group: kubeflow
   kind: PyTorchJob
   version: v1

@@ -87,7 +87,7 @@ You can run the controller as a local process while it manages one or more names
        # Valid LocalQueue name
        kueue.x-k8s.io/queue-name: default-queue
        # Triggers the autoconf controller
-       autoconf-plugin-name: resource-requirements-appwrapper
+       autoconf-plugin-name: ado-autoconf
    ```
 
 Example `AppWrapper` and `PyTorchJob` manifests are available under [`examples`](./examples).
@@ -122,7 +122,7 @@ Below are the controller’s command-line options:
 ### Discovery & scope
 - `--namespaces string` — Comma-separated list of namespaces to watch.
 - `--watch-label-key string` — Limit monitoring to objects labeled `key=value` (default key `autoconf-plugin-name`).
-- `--watch-label-value string` — Label value used with `--watch-label-key` (default `resource-requirements-appwrapper`).
+- `--watch-label-value string` — Label value used with `--watch-label-key` (default `ado-autoconf`).
 - `--enable-appwrapper` — Watch `AppWrapper` objects and create derived objects with recommendations.
 - `--enable-pytorchjob` — Watch `PyTorchJob` objects and create derived objects with recommendations.
 

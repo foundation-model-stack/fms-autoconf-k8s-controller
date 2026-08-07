@@ -22,9 +22,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/ibm/resource-requirements-appwrapper/internal/controller"
-	testutilpkg "github.com/ibm/resource-requirements-appwrapper/test/testutil"
-	"github.com/ibm/resource-requirements-appwrapper/test/utils"
+	"github.com/foundation-model-stack/fms-autoconf-k8s-controller/internal/controller"
+	testutilpkg "github.com/foundation-model-stack/fms-autoconf-k8s-controller/test/testutil"
+	"github.com/foundation-model-stack/fms-autoconf-k8s-controller/test/utils"
 	kubeflowv1 "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	"k8s.io/apimachinery/pkg/runtime"

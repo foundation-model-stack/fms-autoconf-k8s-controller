@@ -21,8 +21,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/foundation-model-stack/fms-autoconf-k8s-controller/internal/controller"
 	"github.com/go-logr/logr"
-	"github.com/ibm/resource-requirements-appwrapper/internal/controller"
 	kubeflowv1 "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	v1 "k8s.io/api/core/v1"
 )

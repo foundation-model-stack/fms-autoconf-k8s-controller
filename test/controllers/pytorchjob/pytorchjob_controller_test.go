@@ -23,10 +23,10 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/foundation-model-stack/fms-autoconf-k8s-controller/internal/controller"
+	testutilpkg "github.com/foundation-model-stack/fms-autoconf-k8s-controller/test/testutil"
+	"github.com/foundation-model-stack/fms-autoconf-k8s-controller/test/utils"
 	"github.com/google/go-cmp/cmp"
-	"github.com/ibm/resource-requirements-appwrapper/internal/controller"
-	testutilpkg "github.com/ibm/resource-requirements-appwrapper/test/testutil"
-	"github.com/ibm/resource-requirements-appwrapper/test/utils"
 	kubeflowv1 "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"

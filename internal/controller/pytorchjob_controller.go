@@ -431,7 +431,7 @@ func (r *PyTorchJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			// Remove AdmissionGatedBy annotation to ungate Kueue admission
 			delete(job.Annotations, KueueAdmissionGatedByAnnotation)
 
-			// Patch the existing PyTorchJob with recommendations in a single operation
+			// Patch the existing PyTorchJob with recommendations
 			if err := r.Patch(ctx, job, client.MergeFrom(original)); err != nil {
 				log.Error(err, "unable to patch PyTorchJob")
 				return ctrl.Result{}, err

@@ -19,7 +19,7 @@ package unit
 import (
 	"testing"
 
-	"github.com/ibm/resource-requirements-appwrapper/internal/controller"
+	"github.com/foundation-model-stack/fms-autoconf-k8s-controller/internal/controller"
 	v1 "k8s.io/api/core/v1"
 )
 

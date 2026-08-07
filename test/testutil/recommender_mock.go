@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/ibm/resource-requirements-appwrapper/internal/controller"
+	"github.com/foundation-model-stack/fms-autoconf-k8s-controller/internal/controller"
 )
 
 // MockImmediateRecommender is a mock implementation of ImmediateRecommender
