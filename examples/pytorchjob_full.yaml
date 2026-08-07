@@ -13,7 +13,7 @@ metadata:
     # If you're using Kueue, enter the LocalQueue name below
     # kueue.x-k8s.io/queue-name: default-queue
     # Uncomment the line below to use the recommender
-    # autoconf-plugin-name: ado-autoconf
+    autoconf-plugin-name: ado-autoconf
 spec:
   # Create the Job in a suspended state so that Trainer does not create a Pod
   # before the recommender is done patching its resources
@@ -32,8 +32,6 @@ spec:
             - name: dshm
               emptyDir:
                 medium: Memory
-          securityContext:
-            allowPrivilegeEscalation: false
           containers:
             - name: pytorch
               image: quay.io/ado/ado:2.1.0-ofed-py312-cu129-ofed2410v1140
