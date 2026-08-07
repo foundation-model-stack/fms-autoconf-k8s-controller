@@ -40,7 +40,11 @@ This approach ensures jobs are not admitted until they have the correct resource
 
 The controller in action!
 
-https://github.com/user-attachments/assets/ac0a5a0a-8966-40bd-9fce-8100086acef7
+
+
+https://github.com/user-attachments/assets/7d147fac-836d-4042-bb6d-493de6f7e1dd
+
+
 
 
 ### Test locally (no Docker image)
