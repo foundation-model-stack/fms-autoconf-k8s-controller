@@ -1,0 +1,4 @@
+dep-crds/*
+bin/*
+.idea/*
+cover.out
