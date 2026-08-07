@@ -22,7 +22,7 @@ The design of the controller enables us to explore different algorithms for reso
 
 ### Kueue Integration with AdmissionGatedBy
 
-This controller integrates with Kueue's **AdmissionGatedBy** feature (available in Kueue v0.17+) to temporarily gate job admission while resource requirements are being computed.
+This controller integrates with Kueue's **AdmissionGatedBy** feature (available in Kueue v0.17+, on by default in v0.19+) to temporarily gate job admission while resource requirements are being computed.
 
 **How it works:**
 1. Users create Jobs with a valid LocalQueue name and the `kueue.x-k8s.io/admission-gated-by=autoconf.ibm/ado-min-gpu-recommender` annotation
